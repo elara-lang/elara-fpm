@@ -1,0 +1,11 @@
+[package]
+name = "elara_http"
+version = "0.1.0"
+edition = "2024"
+description = "Elara HTTP SAPI host"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
