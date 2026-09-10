@@ -9,13 +9,15 @@
 //! function that receives response natives as parameters and binds well-known locals
 //! `req` / `res` (request-scoped; same names adapters document for scripts):
 //!
-//! - `req` — table: `method`, `path`, `query`, `headers` (lowercased keys), `body`
+//! - `req` — table: `method`, `path`, `query`, `headers` (lowercased keys), `body`,
+//!   plus `form` / `json` / `files` when body parsers run
 //! - `res` — table of closures over host natives mutating a [`ResponseBuffer`]
 //!
 //! Header lookups are case-insensitive (keys stored lowercased). Multi-value: first wins.
 
 use std::collections::BTreeMap;
 
+use crate::body::{BodyLimits, enrich_request};
 use crate::ffi::{
     elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_open,
     elara_val_native_fn, elara_val_nil, eval,
@@ -33,6 +35,22 @@ pub struct RequestData {
     pub query: String,
     pub headers: BTreeMap<String, String>,
     pub body: String,
+    /// Parsed `application/x-www-form-urlencoded` (and multipart text fields). Last key wins.
+    pub form: BTreeMap<String, String>,
+    /// Elara source fragment for `req.json` (e.g. `nil` or a table literal); set by JSON parser.
+    pub json_elara: String,
+    /// Uploaded files metadata for `req.files` (filled by multipart).
+    pub files: Vec<UploadedFile>,
+}
+
+/// One multipart file part exposed on `req.files`.
+#[derive(Debug, Clone, Default)]
+pub struct UploadedFile {
+    pub name: String,
+    pub filename: String,
+    pub content_type: String,
+    pub path: String,
+    pub size: u64,
 }
 
 impl RequestData {
@@ -95,7 +113,32 @@ fn headers_literal(headers: &BTreeMap<String, String>) -> String {
     src
 }
 
+fn string_map_literal(map: &BTreeMap<String, String>) -> String {
+    headers_literal(map)
+}
+
+fn files_literal(files: &[UploadedFile]) -> String {
+    let mut src = String::from("{\n");
+    for (i, f) in files.iter().enumerate() {
+        src.push_str(&format!(
+            "  [{i}] = {{\n    name: {},\n    filename: {},\n    content_type: {},\n    path: {},\n    size: {},\n  }},\n",
+            elara_string_lit(&f.name),
+            elara_string_lit(&f.filename),
+            elara_string_lit(&f.content_type),
+            elara_string_lit(&f.path),
+            f.size,
+        ));
+    }
+    src.push('}');
+    src
+}
+
 fn wrap_script(request: &RequestData, source: &str) -> String {
+    let json_expr = if request.json_elara.is_empty() {
+        "nil".to_string()
+    } else {
+        request.json_elara.clone()
+    };
     format!(
         r#"
 fn __elara_http_run(__res_set_status, __res_header, __res_write) {{
@@ -105,6 +148,9 @@ fn __elara_http_run(__res_set_status, __res_header, __res_write) {{
     query: {query},
     headers: {headers},
     body: {body},
+    form: {form},
+    json: {json},
+    files: {files},
   }}
   let res = {{
     set_status: fn(code) {{ __res_set_status(code) }},
@@ -121,6 +167,9 @@ return __elara_http_run
         query = elara_string_lit(&request.query),
         headers = headers_literal(&request.headers),
         body = elara_string_lit(&request.body),
+        form = string_map_literal(&request.form),
+        json = json_expr,
+        files = files_literal(&request.files),
         source = source,
     )
 }
@@ -130,13 +179,26 @@ pub fn run_script(
     request: &RequestData,
     source: &str,
 ) -> Result<(FinalResponse, Option<String>), String> {
+    run_script_with_limits(request, source, &BodyLimits::default())
+}
+
+/// Like [`run_script`] with explicit body/upload limits.
+pub fn run_script_with_limits(
+    request: &RequestData,
+    source: &str,
+    limits: &BodyLimits,
+) -> Result<(FinalResponse, Option<String>), String> {
+    let mut prepared = request.clone();
+    if let Err(e) = enrich_request(&mut prepared, limits) {
+        return Err(e.to_string());
+    }
     unsafe {
         let state = elara_open();
         if state.is_null() {
             return Err("elara_open returned null".into());
         }
         let mut bindings = ScriptBindings::new();
-        let result = run_script_on(state, request, &mut bindings, source);
+        let result = run_script_on(state, &prepared, &mut bindings, source);
         let response = bindings.finalize();
         elara_close(state);
         match result {
@@ -147,6 +209,7 @@ pub fn run_script(
 }
 
 /// Like [`run_script`] but uses an existing state and bindings (for adapter reuse).
+/// Caller MUST run body enrichment first when structured `form`/`json`/`files` are needed.
 pub fn run_script_on(
     state: *mut elara_State,
     request: &RequestData,

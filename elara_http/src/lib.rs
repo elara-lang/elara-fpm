@@ -1,14 +1,17 @@
 //! Elara HTTP host library (SAPI).
 
+pub mod body;
 pub mod ffi;
 pub mod response;
 pub mod script_api;
 
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
+pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use response::{FinalResponse, ResponseBuffer};
 pub use script_api::{
-    RequestData, ScriptBindings, run_script, run_script_on, smoke_inject_req_res,
+    RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_with_limits,
+    smoke_inject_req_res,
 };
 
 /// Open a state, evaluate `return 1+1`, assert the integer result is 2, then close.
