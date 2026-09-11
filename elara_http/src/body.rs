@@ -118,7 +118,7 @@ fn content_type_mime(headers: &BTreeMap<String, String>) -> String {
         .unwrap_or_default()
 }
 
-/// Fill structured fields on `request` from `body` / Content-Type (urlencoded only in this step).
+/// Fill structured fields on `request` from `body` / Content-Type.
 pub fn enrich_request(request: &mut RequestData, limits: &BodyLimits) -> Result<(), BodyError> {
     if request.body.len() > limits.max_body_bytes {
         return Err(BodyError::TooLarge {
@@ -127,10 +127,231 @@ pub fn enrich_request(request: &mut RequestData, limits: &BodyLimits) -> Result<
         });
     }
     let mime = content_type_mime(&request.headers);
-    if mime == "application/x-www-form-urlencoded" {
-        request.form = parse_urlencoded(&request.body);
+    match mime.as_str() {
+        "application/x-www-form-urlencoded" => {
+            request.form = parse_urlencoded(&request.body);
+        }
+        "application/json" => {
+            request.json_elara = json_to_elara(&request.body)?;
+        }
+        _ => {}
     }
     Ok(())
+}
+
+/// Convert a JSON document into an Elara expression source fragment for `req.json`.
+pub fn json_to_elara(input: &str) -> Result<String, BodyError> {
+    let mut p = JsonParser {
+        bytes: input.as_bytes(),
+        i: 0,
+    };
+    let expr = p.parse_value()?;
+    p.skip_ws();
+    if p.i != p.bytes.len() {
+        return Err(BodyError::InvalidJson(
+            "trailing data after JSON value".into(),
+        ));
+    }
+    Ok(expr)
+}
+
+struct JsonParser<'a> {
+    bytes: &'a [u8],
+    i: usize,
+}
+
+impl JsonParser<'_> {
+    fn skip_ws(&mut self) {
+        while self.i < self.bytes.len() && self.bytes[self.i].is_ascii_whitespace() {
+            self.i += 1;
+        }
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.i).copied()
+    }
+
+    fn bump(&mut self) -> Option<u8> {
+        let b = self.peek()?;
+        self.i += 1;
+        Some(b)
+    }
+
+    fn parse_value(&mut self) -> Result<String, BodyError> {
+        self.skip_ws();
+        match self.peek() {
+            Some(b'n') => self.parse_literal(b"null", "nil"),
+            Some(b't') => self.parse_literal(b"true", "true"),
+            Some(b'f') => self.parse_literal(b"false", "false"),
+            Some(b'"') => self.parse_string().map(|s| elara_quote(&s)),
+            Some(b'{') => self.parse_object(),
+            Some(b'[') => self.parse_array(),
+            Some(b'-') | Some(b'0'..=b'9') => self.parse_number(),
+            Some(b) => Err(BodyError::InvalidJson(format!(
+                "unexpected byte {:?} at {}",
+                b as char, self.i
+            ))),
+            None => Err(BodyError::InvalidJson("unexpected end of input".into())),
+        }
+    }
+
+    fn parse_literal(&mut self, lit: &[u8], elara: &str) -> Result<String, BodyError> {
+        for &b in lit {
+            if self.bump() != Some(b) {
+                return Err(BodyError::InvalidJson(format!(
+                    "expected literal {}",
+                    std::str::from_utf8(lit).unwrap_or("?")
+                )));
+            }
+        }
+        Ok(elara.to_string())
+    }
+
+    fn parse_string(&mut self) -> Result<String, BodyError> {
+        if self.bump() != Some(b'"') {
+            return Err(BodyError::InvalidJson("expected string".into()));
+        }
+        let mut out = String::new();
+        loop {
+            match self.bump() {
+                Some(b'"') => return Ok(out),
+                Some(b'\\') => match self.bump() {
+                    Some(b'"') => out.push('"'),
+                    Some(b'\\') => out.push('\\'),
+                    Some(b'/') => out.push('/'),
+                    Some(b'b') => out.push('\u{0008}'),
+                    Some(b'f') => out.push('\u{000c}'),
+                    Some(b'n') => out.push('\n'),
+                    Some(b'r') => out.push('\r'),
+                    Some(b't') => out.push('\t'),
+                    Some(b'u') => {
+                        let mut code = 0u32;
+                        for _ in 0..4 {
+                            let h = self
+                                .bump()
+                                .and_then(hex_nibble)
+                                .ok_or_else(|| BodyError::InvalidJson("bad \\u escape".into()))?;
+                            code = (code << 4) | u32::from(h);
+                        }
+                        out.push(
+                            char::from_u32(code)
+                                .ok_or_else(|| BodyError::InvalidJson("bad unicode".into()))?,
+                        );
+                    }
+                    _ => return Err(BodyError::InvalidJson("bad escape".into())),
+                },
+                Some(b) => out.push(b as char),
+                None => return Err(BodyError::InvalidJson("unterminated string".into())),
+            }
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<String, BodyError> {
+        let start = self.i;
+        if self.peek() == Some(b'-') {
+            self.i += 1;
+        }
+        if self.peek() == Some(b'0') {
+            self.i += 1;
+        } else if matches!(self.peek(), Some(b'1'..=b'9')) {
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.i += 1;
+            }
+        } else {
+            return Err(BodyError::InvalidJson("invalid number".into()));
+        }
+        if self.peek() == Some(b'.') {
+            self.i += 1;
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(BodyError::InvalidJson("invalid fraction".into()));
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.i += 1;
+            }
+        }
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            self.i += 1;
+            if matches!(self.peek(), Some(b'+' | b'-')) {
+                self.i += 1;
+            }
+            if !matches!(self.peek(), Some(b'0'..=b'9')) {
+                return Err(BodyError::InvalidJson("invalid exponent".into()));
+            }
+            while matches!(self.peek(), Some(b'0'..=b'9')) {
+                self.i += 1;
+            }
+        }
+        let raw = std::str::from_utf8(&self.bytes[start..self.i])
+            .map_err(|_| BodyError::InvalidJson("number utf8".into()))?;
+        Ok(raw.to_string())
+    }
+
+    fn parse_array(&mut self) -> Result<String, BodyError> {
+        self.bump(); // [
+        self.skip_ws();
+        let mut parts = Vec::new();
+        if self.peek() != Some(b']') {
+            loop {
+                parts.push(self.parse_value()?);
+                self.skip_ws();
+                match self.peek() {
+                    Some(b',') => {
+                        self.bump();
+                        self.skip_ws();
+                    }
+                    Some(b']') => break,
+                    _ => return Err(BodyError::InvalidJson("expected , or ]".into())),
+                }
+            }
+        }
+        self.bump(); // ]
+        Ok(format!("{{ {} }}", parts.join(", ")))
+    }
+
+    fn parse_object(&mut self) -> Result<String, BodyError> {
+        self.bump(); // {
+        self.skip_ws();
+        let mut parts = Vec::new();
+        if self.peek() != Some(b'}') {
+            loop {
+                self.skip_ws();
+                let key = self.parse_string()?;
+                self.skip_ws();
+                if self.bump() != Some(b':') {
+                    return Err(BodyError::InvalidJson("expected :".into()));
+                }
+                let val = self.parse_value()?;
+                parts.push(format!("[{}] = {}", elara_quote(&key), val));
+                self.skip_ws();
+                match self.peek() {
+                    Some(b',') => {
+                        self.bump();
+                        self.skip_ws();
+                    }
+                    Some(b'}') => break,
+                    _ => return Err(BodyError::InvalidJson("expected , or }}".into())),
+                }
+            }
+        }
+        self.bump(); // }
+        Ok(format!("{{\n  {}\n}}", parts.join(",\n  ")))
+    }
+}
+
+fn elara_quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]
@@ -142,5 +363,17 @@ mod tests {
         let m = parse_urlencoded("a=1&b=hello+%57orld&a=2");
         assert_eq!(m.get("a").map(String::as_str), Some("2"));
         assert_eq!(m.get("b").map(String::as_str), Some("hello World"));
+    }
+
+    #[test]
+    fn json_object_to_elara() {
+        let e = json_to_elara(r#"{"n":1,"ok":true}"#).unwrap();
+        assert!(e.contains("[\"n\"] = 1"));
+        assert!(e.contains("[\"ok\"] = true"));
+    }
+
+    #[test]
+    fn json_invalid_errors() {
+        assert!(matches!(json_to_elara("{"), Err(BodyError::InvalidJson(_))));
     }
 }

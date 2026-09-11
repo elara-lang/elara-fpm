@@ -133,21 +133,23 @@ fn files_literal(files: &[UploadedFile]) -> String {
     src
 }
 
-fn wrap_script(request: &RequestData, source: &str) -> String {
+pub(crate) fn wrap_script(request: &RequestData, source: &str) -> String {
     let json_expr = if request.json_elara.is_empty() {
         "nil".to_string()
     } else {
         request.json_elara.clone()
     };
+    // Body is passed as a call argument (`__req_body`) because Elara double-quoted
+    // strings interpolate `{…}` and cannot safely embed raw JSON text.
     format!(
         r#"
-fn __elara_http_run(__res_set_status, __res_header, __res_write) {{
+fn __elara_http_run(__res_set_status, __res_header, __res_write, __req_body) {{
   let req = {{
     method: {method},
     path: {path},
     query: {query},
     headers: {headers},
-    body: {body},
+    body: __req_body,
     form: {form},
     json: {json},
     files: {files},
@@ -166,7 +168,6 @@ return __elara_http_run
         path = elara_string_lit(&request.path),
         query = elara_string_lit(&request.query),
         headers = headers_literal(&request.headers),
-        body = elara_string_lit(&request.body),
         form = string_map_literal(&request.form),
         json = json_expr,
         files = files_literal(&request.files),
@@ -220,10 +221,16 @@ pub fn run_script_on(
     let callable = eval(state, "elara_http_wrap", &wrapped)?;
     let ud = userdata_ptr(&mut bindings.response);
     unsafe {
-        let args: [elara_Value; 3] = [
+        let body_val = crate::ffi::elara_val_string(
+            state,
+            request.body.as_ptr() as *const std::os::raw::c_char,
+            request.body.len(),
+        );
+        let args: [elara_Value; 4] = [
             elara_val_native_fn(state, Some(native_res_set_status), ud),
             elara_val_native_fn(state, Some(native_res_header), ud),
             elara_val_native_fn(state, Some(native_res_write), ud),
+            body_val,
         ];
         let mut results = [elara_val_nil()];
         let mut nret: u16 = 0;
@@ -231,7 +238,7 @@ pub fn run_script_on(
             state,
             callable,
             args.as_ptr(),
-            3,
+            4,
             results.as_mut_ptr(),
             1,
             &mut nret,
