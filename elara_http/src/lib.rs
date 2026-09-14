@@ -2,6 +2,7 @@
 
 pub mod body;
 pub mod ffi;
+pub mod multipart;
 pub mod response;
 pub mod script_api;
 

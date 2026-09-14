@@ -134,6 +134,9 @@ pub fn enrich_request(request: &mut RequestData, limits: &BodyLimits) -> Result<
         "application/json" => {
             request.json_elara = json_to_elara(&request.body)?;
         }
+        "multipart/form-data" => {
+            crate::multipart::parse_multipart(request, limits)?;
+        }
         _ => {}
     }
     Ok(())

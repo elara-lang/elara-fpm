@@ -193,9 +193,10 @@ pub fn run_script_with_limits(
     if let Err(e) = enrich_request(&mut prepared, limits) {
         return Err(e.to_string());
     }
-    unsafe {
+    let outcome = unsafe {
         let state = elara_open();
         if state.is_null() {
+            crate::multipart::cleanup_uploads(&prepared);
             return Err("elara_open returned null".into());
         }
         let mut bindings = ScriptBindings::new();
@@ -206,7 +207,9 @@ pub fn run_script_with_limits(
             Ok(()) => Ok((response, None)),
             Err(e) => Ok((response, Some(e))),
         }
-    }
+    };
+    crate::multipart::cleanup_uploads(&prepared);
+    outcome
 }
 
 /// Like [`run_script`] but uses an existing state and bindings (for adapter reuse).
