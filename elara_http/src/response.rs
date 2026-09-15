@@ -15,6 +15,8 @@ use crate::ffi::{
 pub struct ResponseBuffer {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
+    /// Separate from `headers` so multiple `Set-Cookie` lines are preserved.
+    pub set_cookies: Vec<String>,
     pub body: Vec<u8>,
     pub finalized: bool,
 }
@@ -24,6 +26,7 @@ impl ResponseBuffer {
         Self {
             status: 200,
             headers: BTreeMap::new(),
+            set_cookies: Vec::new(),
             body: Vec::new(),
             finalized: false,
         }
@@ -34,6 +37,7 @@ impl ResponseBuffer {
         FinalResponse {
             status: self.status,
             headers: self.headers.clone(),
+            set_cookies: self.set_cookies.clone(),
             body: self.body.clone(),
         }
     }
@@ -44,6 +48,7 @@ impl ResponseBuffer {
 pub struct FinalResponse {
     pub status: u16,
     pub headers: BTreeMap<String, String>,
+    pub set_cookies: Vec<String>,
     pub body: Vec<u8>,
 }
 
@@ -126,7 +131,9 @@ pub unsafe extern "C" fn native_res_write(
     }
 }
 
-unsafe fn response_from_ctx<'a>(ctx: *mut elara_CallContext) -> Option<&'a mut ResponseBuffer> {
+pub(crate) unsafe fn response_from_ctx<'a>(
+    ctx: *mut elara_CallContext,
+) -> Option<&'a mut ResponseBuffer> {
     unsafe {
         let ptr = elara_context_userdata(ctx) as *mut ResponseBuffer;
         if ptr.is_null() { None } else { Some(&mut *ptr) }

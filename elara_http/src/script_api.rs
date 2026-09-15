@@ -18,6 +18,7 @@
 use std::collections::BTreeMap;
 
 use crate::body::{BodyLimits, enrich_request};
+use crate::cookies::{native_res_cookie, parse_cookie_header};
 use crate::ffi::{
     elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_open,
     elara_val_native_fn, elara_val_nil, eval,
@@ -37,6 +38,8 @@ pub struct RequestData {
     pub body: String,
     /// Parsed `application/x-www-form-urlencoded` (and multipart text fields). Last key wins.
     pub form: BTreeMap<String, String>,
+    /// Parsed `Cookie` header. Duplicate names: last value wins.
+    pub cookies: BTreeMap<String, String>,
     /// Elara source fragment for `req.json` (e.g. `nil` or a table literal); set by JSON parser.
     pub json_elara: String,
     /// Uploaded files metadata for `req.files` (filled by multipart).
@@ -143,7 +146,7 @@ pub(crate) fn wrap_script(request: &RequestData, source: &str) -> String {
     // strings interpolate `{…}` and cannot safely embed raw JSON text.
     format!(
         r#"
-fn __elara_http_run(__res_set_status, __res_header, __res_write, __req_body) {{
+fn __elara_http_run(__res_set_status, __res_header, __res_write, __res_cookie, __req_body) {{
   let req = {{
     method: {method},
     path: {path},
@@ -151,6 +154,7 @@ fn __elara_http_run(__res_set_status, __res_header, __res_write, __req_body) {{
     headers: {headers},
     body: __req_body,
     form: {form},
+    cookies: {cookies},
     json: {json},
     files: {files},
   }}
@@ -158,6 +162,12 @@ fn __elara_http_run(__res_set_status, __res_header, __res_write, __req_body) {{
     set_status: fn(code) {{ __res_set_status(code) }},
     header: fn(name, value) {{ __res_header(name, value) }},
     write: fn(chunk) {{ __res_write(chunk) }},
+    cookie: fn(name, value) {{
+      __res_cookie(name, value, "/", 0, 0, "", -1)
+    }},
+    cookie_ex: fn(name, value, path, http_only, secure, same_site, max_age) {{
+      __res_cookie(name, value, path, http_only, secure, same_site, max_age)
+    }},
   }}
 {source}
   return nil
@@ -169,6 +179,7 @@ return __elara_http_run
         query = elara_string_lit(&request.query),
         headers = headers_literal(&request.headers),
         form = string_map_literal(&request.form),
+        cookies = string_map_literal(&request.cookies),
         json = json_expr,
         files = files_literal(&request.files),
         source = source,
@@ -190,6 +201,11 @@ pub fn run_script_with_limits(
     limits: &BodyLimits,
 ) -> Result<(FinalResponse, Option<String>), String> {
     let mut prepared = request.clone();
+    if prepared.cookies.is_empty()
+        && let Some(raw) = prepared.headers.get("cookie")
+    {
+        prepared.cookies = parse_cookie_header(raw);
+    }
     if let Err(e) = enrich_request(&mut prepared, limits) {
         return Err(e.to_string());
     }
@@ -229,10 +245,11 @@ pub fn run_script_on(
             request.body.as_ptr() as *const std::os::raw::c_char,
             request.body.len(),
         );
-        let args: [elara_Value; 4] = [
+        let args: [elara_Value; 5] = [
             elara_val_native_fn(state, Some(native_res_set_status), ud),
             elara_val_native_fn(state, Some(native_res_header), ud),
             elara_val_native_fn(state, Some(native_res_write), ud),
+            elara_val_native_fn(state, Some(native_res_cookie), ud),
             body_val,
         ];
         let mut results = [elara_val_nil()];
@@ -241,7 +258,7 @@ pub fn run_script_on(
             state,
             callable,
             args.as_ptr(),
-            4,
+            5,
             results.as_mut_ptr(),
             1,
             &mut nret,
