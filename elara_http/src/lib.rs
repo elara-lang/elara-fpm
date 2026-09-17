@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod multipart;
 pub mod response;
 pub mod script_api;
+pub mod session;
 
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
@@ -16,6 +17,7 @@ pub use script_api::{
     RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_with_limits,
     smoke_inject_req_res,
 };
+pub use session::{FileSessionStore, Session, SessionConfig};
 
 /// Open a state, evaluate `return 1+1`, assert the integer result is 2, then close.
 pub fn smoke_eval_one_plus_one() -> Result<(), String> {
