@@ -15,7 +15,7 @@ pub use cookies::{CookieOptions, parse_cookie_header};
 pub use response::{FinalResponse, ResponseBuffer};
 pub use script_api::{
     RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_with_limits,
-    smoke_inject_req_res,
+    run_script_with_session, smoke_inject_req_res,
 };
 pub use session::{FileSessionStore, Session, SessionConfig};
 

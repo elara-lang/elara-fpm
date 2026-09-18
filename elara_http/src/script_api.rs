@@ -27,6 +27,10 @@ use crate::response::{
     FinalResponse, ResponseBuffer, native_res_header, native_res_set_status, native_res_write,
     userdata_ptr,
 };
+use crate::session::{
+    FileSessionStore, Session, SessionConfig, native_session_destroy, native_session_get,
+    native_session_set, session_set_cookie_line, session_userdata_ptr,
+};
 
 /// Inbound request fields exposed on `req`.
 #[derive(Debug, Clone, Default)]
@@ -67,6 +71,7 @@ impl RequestData {
 /// Pair used for one script execution.
 pub struct ScriptBindings {
     pub response: ResponseBuffer,
+    pub session: Option<Session>,
 }
 
 impl Default for ScriptBindings {
@@ -79,6 +84,7 @@ impl ScriptBindings {
     pub fn new() -> Self {
         Self {
             response: ResponseBuffer::new(),
+            session: None,
         }
     }
 
@@ -136,17 +142,33 @@ fn files_literal(files: &[UploadedFile]) -> String {
     src
 }
 
-pub(crate) fn wrap_script(request: &RequestData, source: &str) -> String {
+pub(crate) fn wrap_script(request: &RequestData, source: &str, with_session: bool) -> String {
     let json_expr = if request.json_elara.is_empty() {
         "nil".to_string()
     } else {
         request.json_elara.clone()
     };
+    let session_block = if with_session {
+        r#"
+  let session = {
+    get: fn(key) { __session_get(key) },
+    set: fn(key, value) { __session_set(key, value) },
+    destroy: fn() { __session_destroy() },
+  }
+"#
+    } else {
+        ""
+    };
+    let params = if with_session {
+        "__res_set_status, __res_header, __res_write, __res_cookie, __session_get, __session_set, __session_destroy, __req_body"
+    } else {
+        "__res_set_status, __res_header, __res_write, __res_cookie, __req_body"
+    };
     // Body is passed as a call argument (`__req_body`) because Elara double-quoted
     // strings interpolate `{…}` and cannot safely embed raw JSON text.
     format!(
         r#"
-fn __elara_http_run(__res_set_status, __res_header, __res_write, __res_cookie, __req_body) {{
+fn __elara_http_run({params}) {{
   let req = {{
     method: {method},
     path: {path},
@@ -169,6 +191,7 @@ fn __elara_http_run(__res_set_status, __res_header, __res_write, __res_cookie, _
       __res_cookie(name, value, path, http_only, secure, same_site, max_age)
     }},
   }}
+{session_block}
 {source}
   return nil
 }}
@@ -200,6 +223,16 @@ pub fn run_script_with_limits(
     source: &str,
     limits: &BodyLimits,
 ) -> Result<(FinalResponse, Option<String>), String> {
+    run_script_with_session(request, source, limits, None)
+}
+
+/// Run a script with optional file-backed sessions.
+pub fn run_script_with_session(
+    request: &RequestData,
+    source: &str,
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+) -> Result<(FinalResponse, Option<String>), String> {
     let mut prepared = request.clone();
     if prepared.cookies.is_empty()
         && let Some(raw) = prepared.headers.get("cookie")
@@ -209,6 +242,13 @@ pub fn run_script_with_limits(
     if let Err(e) = enrich_request(&mut prepared, limits) {
         return Err(e.to_string());
     }
+
+    let store = if let Some(cfg) = session_cfg {
+        Some(FileSessionStore::open(&cfg.store_dir)?)
+    } else {
+        None
+    };
+
     let outcome = unsafe {
         let state = elara_open();
         if state.is_null() {
@@ -216,7 +256,26 @@ pub fn run_script_with_limits(
             return Err("elara_open returned null".into());
         }
         let mut bindings = ScriptBindings::new();
+        if let (Some(cfg), Some(store)) = (session_cfg, store.as_ref()) {
+            let cookie_id = prepared.cookies.get(&cfg.cookie_name).map(String::as_str);
+            bindings.session = Some(store.load_or_create(cookie_id)?);
+        }
         let result = run_script_on(state, &prepared, &mut bindings, source);
+        let script_ok = result.is_ok();
+        if let (Some(cfg), Some(store), Some(session)) =
+            (session_cfg, store.as_ref(), bindings.session.as_ref())
+        {
+            if script_ok {
+                let _ = store.save(session);
+            }
+            let issue_cookie = session.is_new || session.destroyed || script_ok;
+            if issue_cookie {
+                bindings
+                    .response
+                    .set_cookies
+                    .push(session_set_cookie_line(cfg, session));
+            }
+        }
         let response = bindings.finalize();
         elara_close(state);
         match result {
@@ -236,7 +295,8 @@ pub fn run_script_on(
     bindings: &mut ScriptBindings,
     source: &str,
 ) -> Result<(), String> {
-    let wrapped = wrap_script(request, source);
+    let with_session = bindings.session.is_some();
+    let wrapped = wrap_script(request, source, with_session);
     let callable = eval(state, "elara_http_wrap", &wrapped)?;
     let ud = userdata_ptr(&mut bindings.response);
     unsafe {
@@ -245,26 +305,55 @@ pub fn run_script_on(
             request.body.as_ptr() as *const std::os::raw::c_char,
             request.body.len(),
         );
-        let args: [elara_Value; 5] = [
-            elara_val_native_fn(state, Some(native_res_set_status), ud),
-            elara_val_native_fn(state, Some(native_res_header), ud),
-            elara_val_native_fn(state, Some(native_res_write), ud),
-            elara_val_native_fn(state, Some(native_res_cookie), ud),
-            body_val,
-        ];
-        let mut results = [elara_val_nil()];
-        let mut nret: u16 = 0;
-        let status = elara_call(
-            state,
-            callable,
-            args.as_ptr(),
-            5,
-            results.as_mut_ptr(),
-            1,
-            &mut nret,
-        );
-        if status != elara_Status::Ok {
-            return Err(crate::ffi::last_error_message(state));
+        if with_session {
+            let sess = bindings.session.as_mut().unwrap();
+            let sud = session_userdata_ptr(sess);
+            let args: [elara_Value; 8] = [
+                elara_val_native_fn(state, Some(native_res_set_status), ud),
+                elara_val_native_fn(state, Some(native_res_header), ud),
+                elara_val_native_fn(state, Some(native_res_write), ud),
+                elara_val_native_fn(state, Some(native_res_cookie), ud),
+                elara_val_native_fn(state, Some(native_session_get), sud),
+                elara_val_native_fn(state, Some(native_session_set), sud),
+                elara_val_native_fn(state, Some(native_session_destroy), sud),
+                body_val,
+            ];
+            let mut results = [elara_val_nil()];
+            let mut nret: u16 = 0;
+            let status = elara_call(
+                state,
+                callable,
+                args.as_ptr(),
+                8,
+                results.as_mut_ptr(),
+                1,
+                &mut nret,
+            );
+            if status != elara_Status::Ok {
+                return Err(crate::ffi::last_error_message(state));
+            }
+        } else {
+            let args: [elara_Value; 5] = [
+                elara_val_native_fn(state, Some(native_res_set_status), ud),
+                elara_val_native_fn(state, Some(native_res_header), ud),
+                elara_val_native_fn(state, Some(native_res_write), ud),
+                elara_val_native_fn(state, Some(native_res_cookie), ud),
+                body_val,
+            ];
+            let mut results = [elara_val_nil()];
+            let mut nret: u16 = 0;
+            let status = elara_call(
+                state,
+                callable,
+                args.as_ptr(),
+                5,
+                results.as_mut_ptr(),
+                1,
+                &mut nret,
+            );
+            if status != elara_Status::Ok {
+                return Err(crate::ffi::last_error_message(state));
+            }
         }
     }
     Ok(())

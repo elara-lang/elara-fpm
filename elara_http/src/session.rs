@@ -1,9 +1,18 @@
 //! File-backed session store (MVP).
 
+#![allow(clippy::missing_safety_doc)]
+
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::os::raw::c_void;
 use std::path::{Path, PathBuf};
+
+use crate::cookies::CookieOptions;
+use crate::ffi::{
+    elara_CallContext, elara_State, elara_Status, elara_arg, elara_argc, elara_context_userdata,
+    elara_is_nil, elara_return, elara_val_nil, elara_val_string, value_as_string,
+};
 
 /// Operator configuration for sessions.
 #[derive(Debug, Clone)]
@@ -201,6 +210,112 @@ fn from_hex(b: u8) -> Option<u8> {
         b'A'..=b'F' => Some(b - b'A' + 10),
         _ => None,
     }
+}
+
+pub fn session_userdata_ptr(session: &mut Session) -> *mut c_void {
+    session as *mut Session as *mut c_void
+}
+
+unsafe fn session_from_ctx<'a>(ctx: *mut elara_CallContext) -> Option<&'a mut Session> {
+    unsafe {
+        let ptr = elara_context_userdata(ctx) as *mut Session;
+        if ptr.is_null() { None } else { Some(&mut *ptr) }
+    }
+}
+
+pub unsafe extern "C" fn native_session_get(
+    s: *mut elara_State,
+    ctx: *mut elara_CallContext,
+) -> elara_Status {
+    unsafe {
+        let sess = match session_from_ctx(ctx) {
+            Some(v) => v,
+            None => return elara_Status::ErrRuntime,
+        };
+        if sess.destroyed || elara_argc(ctx) < 1 {
+            return elara_Status::ErrRuntime;
+        }
+        let key = match value_as_string(s, elara_arg(ctx, 0)) {
+            Ok(v) => v,
+            Err(_) => return elara_Status::ErrRuntime,
+        };
+        match sess.data.get(&key) {
+            Some(v) => {
+                let val = elara_val_string(s, v.as_ptr() as *const std::os::raw::c_char, v.len());
+                elara_return(ctx, val);
+            }
+            None => elara_return(ctx, elara_val_nil()),
+        }
+        elara_Status::Ok
+    }
+}
+
+pub unsafe extern "C" fn native_session_set(
+    s: *mut elara_State,
+    ctx: *mut elara_CallContext,
+) -> elara_Status {
+    unsafe {
+        let sess = match session_from_ctx(ctx) {
+            Some(v) => v,
+            None => return elara_Status::ErrRuntime,
+        };
+        if sess.destroyed || elara_argc(ctx) < 2 {
+            return elara_Status::ErrRuntime;
+        }
+        let key = match value_as_string(s, elara_arg(ctx, 0)) {
+            Ok(v) => v,
+            Err(_) => return elara_Status::ErrRuntime,
+        };
+        let val = elara_arg(ctx, 1);
+        if elara_is_nil(val) {
+            sess.data.remove(&key);
+        } else {
+            let value = match value_as_string(s, val) {
+                Ok(v) => v,
+                Err(_) => return elara_Status::ErrRuntime,
+            };
+            sess.data.insert(key, value);
+        }
+        elara_return(ctx, elara_val_nil());
+        elara_Status::Ok
+    }
+}
+
+pub unsafe extern "C" fn native_session_destroy(
+    _s: *mut elara_State,
+    ctx: *mut elara_CallContext,
+) -> elara_Status {
+    unsafe {
+        let sess = match session_from_ctx(ctx) {
+            Some(v) => v,
+            None => return elara_Status::ErrRuntime,
+        };
+        sess.destroyed = true;
+        sess.data.clear();
+        elara_return(ctx, elara_val_nil());
+        elara_Status::Ok
+    }
+}
+
+/// Build the session id `Set-Cookie` line (or expiry line when destroyed).
+pub fn session_set_cookie_line(cfg: &SessionConfig, session: &Session) -> String {
+    let opts = CookieOptions {
+        path: Some(cfg.path.clone()),
+        http_only: cfg.http_only,
+        secure: cfg.secure,
+        same_site: Some(cfg.same_site.clone()),
+        max_age: if session.destroyed {
+            Some(0)
+        } else {
+            cfg.max_age
+        },
+    };
+    let value = if session.destroyed {
+        ""
+    } else {
+        session.id.as_str()
+    };
+    opts.format_set_cookie(&cfg.cookie_name, value)
 }
 
 #[cfg(test)]
