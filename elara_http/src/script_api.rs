@@ -149,11 +149,13 @@ pub(crate) fn wrap_script(request: &RequestData, source: &str, with_session: boo
         request.json_elara.clone()
     };
     let session_block = if with_session {
+        // Bind natives directly — wrapper fns that `return` a native result were
+        // runtime-erroring under Elara when stored on a table field.
         r#"
   let session = {
-    get: fn(key) { __session_get(key) },
-    set: fn(key, value) { __session_set(key, value) },
-    destroy: fn() { __session_destroy() },
+    get: __session_get,
+    set: __session_set,
+    destroy: __session_destroy,
   }
 "#
     } else {
