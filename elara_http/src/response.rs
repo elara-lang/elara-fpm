@@ -7,7 +7,7 @@ use std::os::raw::c_void;
 
 use crate::ffi::{
     elara_CallContext, elara_State, elara_Status, elara_arg, elara_argc, elara_context_userdata,
-    elara_return, elara_val_nil, value_as_string,
+    elara_is_int, elara_return, elara_to_int, elara_val_nil, value_as_string,
 };
 
 /// Host-side response accumulated while a script runs.
@@ -126,6 +126,53 @@ pub unsafe extern "C" fn native_res_write(
             Err(_) => return elara_Status::ErrRuntime,
         };
         buf.body.extend_from_slice(chunk.as_bytes());
+        elara_return(ctx, elara_val_nil());
+        elara_Status::Ok
+    }
+}
+
+fn redirect_status_allowed(code: i64) -> bool {
+    matches!(code, 301 | 302 | 303 | 307 | 308)
+}
+
+/// `res.redirect(url)` or `res.redirect(url, status)`.
+pub unsafe extern "C" fn native_res_redirect(
+    s: *mut elara_State,
+    ctx: *mut elara_CallContext,
+) -> elara_Status {
+    unsafe {
+        let buf = match response_from_ctx(ctx) {
+            Some(b) => b,
+            None => return elara_Status::ErrRuntime,
+        };
+        if buf.finalized {
+            return elara_Status::ErrRuntime;
+        }
+        let argc = elara_argc(ctx);
+        if argc < 1 {
+            return elara_Status::ErrRuntime;
+        }
+        let url = match value_as_string(s, elara_arg(ctx, 0)) {
+            Ok(v) => v,
+            Err(_) => return elara_Status::ErrRuntime,
+        };
+        let status = if argc >= 2 {
+            let arg = elara_arg(ctx, 1);
+            if !elara_is_int(arg) {
+                return elara_Status::ErrRuntime;
+            }
+            let code = elara_to_int(arg);
+            if !redirect_status_allowed(code) {
+                return elara_Status::ErrRuntime;
+            }
+            code as u16
+        } else {
+            302
+        };
+        buf.status = status;
+        buf.headers.insert("Location".into(), url);
+        buf.body.clear();
+        buf.finalized = true;
         elara_return(ctx, elara_val_nil());
         elara_Status::Ok
     }

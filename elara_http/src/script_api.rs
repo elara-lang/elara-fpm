@@ -24,8 +24,8 @@ use crate::ffi::{
     elara_val_native_fn, elara_val_nil, eval,
 };
 use crate::response::{
-    FinalResponse, ResponseBuffer, native_res_header, native_res_set_status, native_res_write,
-    userdata_ptr,
+    FinalResponse, ResponseBuffer, native_res_header, native_res_redirect, native_res_set_status,
+    native_res_write, userdata_ptr,
 };
 use crate::session::{
     FileSessionStore, Session, SessionConfig, native_session_destroy, native_session_get,
@@ -162,9 +162,9 @@ pub(crate) fn wrap_script(request: &RequestData, source: &str, with_session: boo
         ""
     };
     let params = if with_session {
-        "__res_set_status, __res_header, __res_write, __res_cookie, __session_get, __session_set, __session_destroy, __req_body"
+        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __session_get, __session_set, __session_destroy, __req_body"
     } else {
-        "__res_set_status, __res_header, __res_write, __res_cookie, __req_body"
+        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __req_body"
     };
     // Body is passed as a call argument (`__req_body`) because Elara double-quoted
     // strings interpolate `{…}` and cannot safely embed raw JSON text.
@@ -192,6 +192,7 @@ fn __elara_http_run({params}) {{
     cookie_ex: fn(name, value, path, http_only, secure, same_site, max_age) {{
       __res_cookie(name, value, path, http_only, secure, same_site, max_age)
     }},
+    redirect: __res_redirect,
   }}
 {session_block}
 {source}
@@ -310,11 +311,12 @@ pub fn run_script_on(
         if with_session {
             let sess = bindings.session.as_mut().unwrap();
             let sud = session_userdata_ptr(sess);
-            let args: [elara_Value; 8] = [
+            let args: [elara_Value; 9] = [
                 elara_val_native_fn(state, Some(native_res_set_status), ud),
                 elara_val_native_fn(state, Some(native_res_header), ud),
                 elara_val_native_fn(state, Some(native_res_write), ud),
                 elara_val_native_fn(state, Some(native_res_cookie), ud),
+                elara_val_native_fn(state, Some(native_res_redirect), ud),
                 elara_val_native_fn(state, Some(native_session_get), sud),
                 elara_val_native_fn(state, Some(native_session_set), sud),
                 elara_val_native_fn(state, Some(native_session_destroy), sud),
@@ -326,7 +328,7 @@ pub fn run_script_on(
                 state,
                 callable,
                 args.as_ptr(),
-                8,
+                9,
                 results.as_mut_ptr(),
                 1,
                 &mut nret,
@@ -335,11 +337,12 @@ pub fn run_script_on(
                 return Err(crate::ffi::last_error_message(state));
             }
         } else {
-            let args: [elara_Value; 5] = [
+            let args: [elara_Value; 6] = [
                 elara_val_native_fn(state, Some(native_res_set_status), ud),
                 elara_val_native_fn(state, Some(native_res_header), ud),
                 elara_val_native_fn(state, Some(native_res_write), ud),
                 elara_val_native_fn(state, Some(native_res_cookie), ud),
+                elara_val_native_fn(state, Some(native_res_redirect), ud),
                 body_val,
             ];
             let mut results = [elara_val_nil()];
@@ -348,7 +351,7 @@ pub fn run_script_on(
                 state,
                 callable,
                 args.as_ptr(),
-                5,
+                6,
                 results.as_mut_ptr(),
                 1,
                 &mut nret,
