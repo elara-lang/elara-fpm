@@ -285,7 +285,10 @@ pub fn run_script_with_session(
         elara_close(state);
         match result {
             Ok(()) => Ok((response, None)),
-            Err(e) => Ok((response, Some(e))),
+            Err(e) => Ok((
+                crate::helpers::host_error_page(500, "Internal Server Error"),
+                Some(e),
+            )),
         }
     };
     crate::multipart::cleanup_uploads(&prepared);

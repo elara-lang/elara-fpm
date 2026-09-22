@@ -32,8 +32,8 @@ res.write("nope")
 "#,
     )
     .expect("run");
-    // write after redirect fails the script; response still carries redirect
-    assert!(err.is_some(), "expected write-after-redirect error");
+    // writes after redirect are ignored; redirect response is kept
+    assert!(err.is_none(), "{err:?}");
     assert_eq!(response.status, 301);
     assert_eq!(
         response.headers.get("Location").map(String::as_str),

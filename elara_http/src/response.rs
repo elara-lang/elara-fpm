@@ -62,7 +62,8 @@ pub unsafe extern "C" fn native_res_set_status(
             None => return elara_Status::ErrRuntime,
         };
         if buf.finalized {
-            return elara_Status::ErrRuntime;
+            elara_return(ctx, elara_val_nil());
+            return elara_Status::Ok;
         }
         if elara_argc(ctx) < 1 {
             return elara_Status::ErrRuntime;
@@ -87,7 +88,8 @@ pub unsafe extern "C" fn native_res_header(
             None => return elara_Status::ErrRuntime,
         };
         if buf.finalized {
-            return elara_Status::ErrRuntime;
+            elara_return(ctx, elara_val_nil());
+            return elara_Status::Ok;
         }
         if elara_argc(ctx) < 2 {
             return elara_Status::ErrRuntime;
@@ -116,7 +118,8 @@ pub unsafe extern "C" fn native_res_write(
             None => return elara_Status::ErrRuntime,
         };
         if buf.finalized {
-            return elara_Status::ErrRuntime;
+            elara_return(ctx, elara_val_nil());
+            return elara_Status::Ok;
         }
         if elara_argc(ctx) < 1 {
             return elara_Status::ErrRuntime;
@@ -146,7 +149,8 @@ pub unsafe extern "C" fn native_res_redirect(
             None => return elara_Status::ErrRuntime,
         };
         if buf.finalized {
-            return elara_Status::ErrRuntime;
+            elara_return(ctx, elara_val_nil());
+            return elara_Status::Ok;
         }
         let argc = elara_argc(ctx);
         if argc < 1 {
