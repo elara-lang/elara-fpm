@@ -6,6 +6,7 @@ pub mod ffi;
 pub mod helpers;
 pub mod multipart;
 pub mod response;
+pub mod sandbox;
 pub mod script_api;
 pub mod session;
 
@@ -15,9 +16,13 @@ pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use cookies::{CookieOptions, parse_cookie_header};
 pub use helpers::{host_error_page, html_escape};
 pub use response::{FinalResponse, ResponseBuffer};
+pub use sandbox::{
+    DEFAULT_GAS_LIMIT, DEFAULT_MEM_LIMIT_BYTES, ELARA_CAP_SAFE_DEFAULT, ELARA_CAP_SYS_ENV,
+    SandboxConfig, open_request_state,
+};
 pub use script_api::{
-    RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_with_limits,
-    run_script_with_session, smoke_inject_req_res,
+    RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_sandboxed,
+    run_script_with_limits, run_script_with_session, smoke_inject_req_res,
 };
 pub use session::{FileSessionStore, Session, SessionConfig};
 

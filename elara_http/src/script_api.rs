@@ -20,14 +20,15 @@ use std::collections::BTreeMap;
 use crate::body::{BodyLimits, enrich_request};
 use crate::cookies::{native_res_cookie, parse_cookie_header};
 use crate::ffi::{
-    elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_open,
-    elara_val_native_fn, elara_val_nil, eval,
+    elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_val_native_fn,
+    elara_val_nil, eval,
 };
 use crate::helpers::native_html_escape;
 use crate::response::{
     FinalResponse, ResponseBuffer, native_res_header, native_res_redirect, native_res_set_status,
     native_res_write, userdata_ptr,
 };
+use crate::sandbox::{SandboxConfig, open_request_state};
 use crate::session::{
     FileSessionStore, Session, SessionConfig, native_session_destroy, native_session_get,
     native_session_set, session_set_cookie_line, session_userdata_ptr,
@@ -231,12 +232,29 @@ pub fn run_script_with_limits(
     run_script_with_session(request, source, limits, None)
 }
 
-/// Run a script with optional file-backed sessions.
+/// Run a script with optional file-backed sessions and default sandbox.
 pub fn run_script_with_session(
     request: &RequestData,
     source: &str,
     limits: &BodyLimits,
     session_cfg: Option<&SessionConfig>,
+) -> Result<(FinalResponse, Option<String>), String> {
+    run_script_sandboxed(
+        request,
+        source,
+        limits,
+        session_cfg,
+        &SandboxConfig::default(),
+    )
+}
+
+/// Run a script with explicit sandbox configuration.
+pub fn run_script_sandboxed(
+    request: &RequestData,
+    source: &str,
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
 ) -> Result<(FinalResponse, Option<String>), String> {
     let mut prepared = request.clone();
     if prepared.cookies.is_empty()
@@ -255,11 +273,13 @@ pub fn run_script_with_session(
     };
 
     let outcome = unsafe {
-        let state = elara_open();
-        if state.is_null() {
-            crate::multipart::cleanup_uploads(&prepared);
-            return Err("elara_open returned null".into());
-        }
+        let state = match open_request_state(sandbox) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::multipart::cleanup_uploads(&prepared);
+                return Err(e);
+            }
+        };
         let mut bindings = ScriptBindings::new();
         if let (Some(cfg), Some(store)) = (session_cfg, store.as_ref()) {
             let cookie_id = prepared.cookies.get(&cfg.cookie_name).map(String::as_str);
