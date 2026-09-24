@@ -17,7 +17,9 @@ pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use cookies::{CookieOptions, parse_cookie_header};
 pub use helpers::{host_error_page, html_escape};
 pub use response::{FinalResponse, ResponseBuffer};
-pub use routing::{Route, content_type_for, resolve_route, resolve_under_root, serve_static};
+pub use routing::{
+    Route, content_type_for, load_script_source, resolve_route, resolve_under_root, serve_static,
+};
 pub use sandbox::{
     DEFAULT_GAS_LIMIT, DEFAULT_MEM_LIMIT_BYTES, ELARA_CAP_SAFE_DEFAULT, ELARA_CAP_SYS_ENV,
     SandboxConfig, open_request_state,

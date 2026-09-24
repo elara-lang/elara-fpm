@@ -136,6 +136,15 @@ pub fn resolve_route(docroot: &Path, url_path: &str) -> Route {
     }
 }
 
+/// Load script source from disk (`.ela` text; `.elac` not supported in MVP beyond existence).
+pub fn load_script_source(path: &Path) -> Result<String, FinalResponse> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext.eq_ignore_ascii_case("elac") {
+        return Err(host_error_page(501, "Not Implemented"));
+    }
+    fs::read_to_string(path).map_err(|_| host_error_page(404, "Not Found"))
+}
+
 /// Read a static file into a finalized response.
 pub fn serve_static(path: &Path, content_type: &str) -> FinalResponse {
     match fs::read(path) {
