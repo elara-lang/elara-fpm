@@ -9,6 +9,7 @@ pub mod response;
 pub mod routing;
 pub mod sandbox;
 pub mod script_api;
+pub mod server;
 pub mod session;
 
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
@@ -27,6 +28,10 @@ pub use sandbox::{
 pub use script_api::{
     RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_sandboxed,
     run_script_with_limits, run_script_with_session, smoke_inject_req_res,
+};
+pub use server::{
+    CliArgs, DevServerConfig, bind_listener, dispatch_request, parse_cli, parse_listen_addr,
+    print_listen_banner, run_dev_server,
 };
 pub use session::{FileSessionStore, Session, SessionConfig};
 

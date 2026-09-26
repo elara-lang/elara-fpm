@@ -6,6 +6,10 @@ description = "Elara HTTP SAPI host"
 license = "MIT"
 publish = false
 
+[[bin]]
+name = "elara-http"
+path = "src/bin/elara-http.rs"
+
 [dependencies]
 
 [dev-dependencies]
