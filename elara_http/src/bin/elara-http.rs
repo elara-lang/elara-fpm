@@ -1,4 +1,4 @@
-use elara_http::{DevServerConfig, parse_cli, run_dev_server};
+use elara_http::{DevServerConfig, parse_cli, run_cgi_once, run_dev_server};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -7,14 +7,9 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => {
             eprintln!("elara-http: {e}");
-            eprintln!("usage: elara-http -S <addr>:<port> [-t <docroot>]");
+            eprintln!("usage: elara-http [-S <addr>:<port>] [-t <docroot>]");
             return ExitCode::from(2);
         }
-    };
-    let Some(listen) = cli.listen else {
-        eprintln!("elara-http: -S <addr>:<port> is required");
-        eprintln!("usage: elara-http -S <addr>:<port> [-t <docroot>]");
-        return ExitCode::from(2);
     };
     if !cli.docroot.is_dir() {
         eprintln!(
@@ -23,13 +18,18 @@ fn main() -> ExitCode {
         );
         return ExitCode::from(1);
     }
-    let cfg = DevServerConfig {
-        listen,
-        docroot: cli.docroot,
-    };
-    if let Err(e) = run_dev_server(cfg) {
-        eprintln!("elara-http: {e}");
-        return ExitCode::from(1);
+    if let Some(listen) = cli.listen {
+        let cfg = DevServerConfig {
+            listen,
+            docroot: cli.docroot,
+        };
+        if let Err(e) = run_dev_server(cfg) {
+            eprintln!("elara-http: {e}");
+            return ExitCode::from(1);
+        }
+        return ExitCode::SUCCESS;
     }
-    ExitCode::SUCCESS
+    // No -S: CGI mode (ScriptAlias / front-end CGI).
+    let code = run_cgi_once(&cli.docroot);
+    ExitCode::from(code as u8)
 }

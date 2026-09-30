@@ -151,3 +151,19 @@ pub fn read_cgi_stdin(env: &BTreeMap<String, String>, stdin: &mut dyn Read) -> V
 pub fn write_cgi_stdout(stdout: &mut dyn Write, resp: &FinalResponse) -> std::io::Result<()> {
     stdout.write_all(&format_cgi_response(resp))
 }
+
+/// Collect process environment into a string map (CGI variables).
+pub fn cgi_env_from_os() -> BTreeMap<String, String> {
+    std::env::vars().collect()
+}
+
+/// Run one CGI request using OS env + stdin → stdout. Returns process exit code.
+pub fn run_cgi_once(docroot: &Path) -> i32 {
+    let env = cgi_env_from_os();
+    let body = read_cgi_stdin(&env, &mut std::io::stdin());
+    let resp = handle_cgi_request(docroot, &env, &body);
+    match write_cgi_stdout(&mut std::io::stdout(), &resp) {
+        Ok(()) => 0,
+        Err(_) => 1,
+    }
+}
