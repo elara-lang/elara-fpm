@@ -1,6 +1,7 @@
 //! Elara HTTP host library (SAPI).
 
 pub mod body;
+pub mod cgi;
 pub mod cookies;
 pub mod ffi;
 pub mod helpers;
@@ -15,6 +16,9 @@ pub mod session;
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
 pub use body::{BodyError, BodyLimits, parse_urlencoded};
+pub use cgi::{
+    format_cgi_response, handle_cgi_request, read_cgi_stdin, request_from_cgi_env, write_cgi_stdout,
+};
 pub use cookies::{CookieOptions, parse_cookie_header};
 pub use helpers::{host_error_page, html_escape};
 pub use response::{FinalResponse, ResponseBuffer};
