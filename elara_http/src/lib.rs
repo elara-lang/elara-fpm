@@ -3,6 +3,7 @@
 pub mod body;
 pub mod cgi;
 pub mod cookies;
+pub mod fastcgi;
 pub mod ffi;
 pub mod helpers;
 pub mod multipart;
@@ -21,6 +22,10 @@ pub use cgi::{
     run_cgi_once, write_cgi_stdout,
 };
 pub use cookies::{CookieOptions, parse_cookie_header};
+pub use fastcgi::{
+    FastCgiConfig, encode_test_request, extract_stdout, handle_fastcgi_connection,
+    run_fastcgi_worker,
+};
 pub use helpers::{host_error_page, html_escape};
 pub use response::{FinalResponse, ResponseBuffer};
 pub use routing::{
