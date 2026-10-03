@@ -42,8 +42,9 @@ fn two_fastcgi_requests_stay_isolated() {
 
     let out1 = fcgi_get(addr, "/a.ela");
     let out2 = fcgi_get(addr, "/b.ela");
-    assert!(out1.contains("A"), "{out1}");
-    assert!(out2.contains("B"), "{out2}");
-    assert!(!out2.contains("A"), "{out2}");
+    let body1 = out1.rsplit("\r\n\r\n").next().unwrap_or("");
+    let body2 = out2.rsplit("\r\n\r\n").next().unwrap_or("");
+    assert_eq!(body1, "A");
+    assert_eq!(body2, "B");
     server.join().unwrap();
 }

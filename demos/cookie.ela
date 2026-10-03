@@ -1,0 +1,10 @@
+res.header("Content-Type", "text/plain; charset=utf-8")
+let seen = req.cookies["demo"]
+if seen == nil {
+  res.cookie("demo", "1")
+  res.write("cookie set\n")
+} else {
+  res.write("cookie=")
+  res.write(seen)
+  res.write("\n")
+}

@@ -1,0 +1,13 @@
+res.header("Content-Type", "text/plain; charset=utf-8")
+if req.method == "POST" {
+  let name = req.form["name"]
+  if name == nil {
+    res.write("missing name\n")
+  } else {
+    res.write("hello ")
+    res.write(name)
+    res.write("\n")
+  }
+} else {
+  res.write("POST name=...\n")
+}

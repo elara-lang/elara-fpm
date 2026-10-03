@@ -8,7 +8,8 @@ use crate::body::BodyLimits;
 use crate::helpers::host_error_page;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_with_limits};
+use crate::script_api::{RequestData, run_script_with_session};
+use crate::session::SessionConfig;
 
 /// Build [`RequestData`] from a CGI-style environment map and stdin body bytes.
 pub fn request_from_cgi_env(env: &BTreeMap<String, String>, stdin_body: &[u8]) -> RequestData {
@@ -117,10 +118,18 @@ pub fn handle_cgi_request(
 fn run_script_file(path: &Path, req: &RequestData) -> FinalResponse {
     match load_script_source(path) {
         Err(e) => e,
-        Ok(source) => match run_script_with_limits(req, &source, &BodyLimits::default()) {
-            Ok((resp, _)) => resp,
-            Err(_) => host_error_page(500, "Internal Server Error"),
-        },
+        Ok(source) => {
+            let root = path.parent().unwrap_or(Path::new("."));
+            let session_cfg = SessionConfig {
+                store_dir: root.join(".sessions"),
+                ..SessionConfig::default()
+            };
+            match run_script_with_session(req, &source, &BodyLimits::default(), Some(&session_cfg))
+            {
+                Ok((resp, _)) => resp,
+                Err(_) => host_error_page(500, "Internal Server Error"),
+            }
+        }
     }
 }
 

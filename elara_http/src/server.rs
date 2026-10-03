@@ -9,7 +9,8 @@ use crate::body::BodyLimits;
 use crate::helpers::host_error_page;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_with_limits};
+use crate::script_api::{RequestData, run_script_with_session};
+use crate::session::SessionConfig;
 
 /// Configuration for the built-in development server.
 #[derive(Debug, Clone)]
@@ -81,22 +82,31 @@ pub fn dispatch_request(docroot: &Path, req: &RequestData) -> FinalResponse {
         Route::Static { path, content_type } => serve_static(&path, &content_type),
         Route::Script(path) => match load_script_source(&path) {
             Err(e) => e,
-            Ok(source) => match run_script_with_limits(req, &source, &BodyLimits::default()) {
-                Ok((resp, err)) => {
-                    if err.is_some() {
-                        // run_script already maps failures to a 500 page when Err in call;
-                        // if Some(err) with 500 page, return it; else keep resp.
-                        if resp.status == 500 {
-                            resp
+            Ok(source) => {
+                let session_cfg = SessionConfig {
+                    store_dir: docroot.join(".sessions"),
+                    ..SessionConfig::default()
+                };
+                match run_script_with_session(
+                    req,
+                    &source,
+                    &BodyLimits::default(),
+                    Some(&session_cfg),
+                ) {
+                    Ok((resp, err)) => {
+                        if err.is_some() {
+                            if resp.status == 500 {
+                                resp
+                            } else {
+                                host_error_page(500, "Internal Server Error")
+                            }
                         } else {
-                            host_error_page(500, "Internal Server Error")
+                            resp
                         }
-                    } else {
-                        resp
                     }
+                    Err(_) => host_error_page(500, "Internal Server Error"),
                 }
-                Err(_) => host_error_page(500, "Internal Server Error"),
-            },
+            }
         },
     }
 }

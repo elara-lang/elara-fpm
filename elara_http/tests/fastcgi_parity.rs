@@ -48,5 +48,13 @@ res.write("golden")
     let fcgi_out = extract_stdout(&buf);
     server.join().unwrap();
 
-    assert_eq!(cgi_out, fcgi_out);
+    // Session cookies differ per request; compare status/body and custom header.
+    assert_eq!(cgi.status, 200);
+    assert_eq!(cgi.body, b"golden");
+    assert_eq!(cgi.headers.get("X-Demo").map(String::as_str), Some("1"));
+    let text = String::from_utf8_lossy(&fcgi_out);
+    assert!(text.contains("Status: 200 "), "{text}");
+    assert!(text.contains("X-Demo: 1\r\n"), "{text}");
+    assert!(text.ends_with("golden"), "{text}");
+    let _ = cgi_out;
 }
