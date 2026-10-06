@@ -1,13 +1,14 @@
 # Elara HTTP
 
-Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, para rodar scripts `.ela` atrás de um servidor web (CGI / FastCGI) ou localmente com um listener de desenvolvimento embutido.
+Host **SAPI HTTP** que embute a VM Elara via `elara.h` / `libelara`. Roda scripts `.ela` atrás de um front-end (CGI / FastCGI) ou localmente com um servidor de desenvolvimento em texto claro estilo PHP (`-S`). Este host **não** é um servidor TLS/HTTP/2 de produção — termine TLS no nginx, Caddy ou Apache.
 
 ## Destaques
 
 - Manter HTTP e sockets só neste host — nunca no núcleo da linguagem Elara
-- Descobrir a Elara a partir de um checkout irmão ou de um prefixo de instalação via `ELARA_ROOT` / `ELARA_PREFIX`
-- Linkar `libelara` e validar a ABI C a partir do crate do host
-- Evoluir para CGI, FastCGI e um servidor local estilo `php -S` com o mesmo ciclo de request
+- Descobrir a Elara a partir de um checkout irmão ou de um prefixo via `ELARA_ROOT` / `ELARA_PREFIX`
+- Servidor embutido `-S` / `-t` para HTTP local em texto claro
+- Modo CGI (sem `-S`) e worker FastCGI para deploy atrás de um front-end
+- API de script: `req` / `res`, forms, cookies, sessions, redirects, escape HTML
 
 ## Pré-requisitos
 
@@ -55,18 +56,25 @@ Compile a Elara antes, se preciso:
 cd ../elara && make build
 ```
 
-## Início rápido
+## Início rápido (`-S`)
 
 ```bash
 make discover
-make test
+make build
+cargo run --manifest-path elara_http/Cargo.toml --bin elara-http -- -S 127.0.0.1:8080 -t demos
 ```
 
-O smoke de link abre um `elara_State`, avalia `return 1+1` e espera `2`.
+Abra [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). Mais demos: [`demos/README.md`](demos/README.md).
+
+Guias: [`docs/`](docs/) (API de script, servidor local, deploy). Inglês: [`README.md`](README.md).
 
 ## Uso
 
-Os adapters do host (CGI, FastCGI, `-S`) entram conforme o projeto avança. Até lá, use `make test` / `make quality` para validar o link com a Elara.
+| Modo | Como |
+| --- | --- |
+| Local texto claro | `elara-http -S 127.0.0.1:8080 -t <docroot>` |
+| CGI | `elara-http -t <docroot>` com env CGI + stdin (sem `-S`) |
+| FastCGI | worker da biblioteca (`run_fastcgi_worker`); ver `demos/nginx-fastcgi.conf` |
 
 ## Desenvolvimento
 
@@ -85,10 +93,11 @@ make clean
 
 | Caminho | Papel |
 | --- | --- |
-| `Makefile` | Orquestrador na raiz |
-| `.make/` | Build, teste, quality, descoberta da Elara |
-| `bin/` | Artefatos (ignorados no git, exceto `.gitkeep`) |
-| `elara_http/` | Pacote Cargo do host |
+| `Makefile` | Orquestrador raiz |
+| `.make/` | Build, test, quality, descoberta Elara |
+| `elara_http/` | Pacote Cargo do host + binário `elara-http` |
+| `demos/` | Scripts `.ela` de exemplo e snippets de front-end |
+| `docs/` | Guias públicos (EN + PT) |
 
 ## Licença
 

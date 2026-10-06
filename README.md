@@ -1,13 +1,14 @@
 # Elara HTTP
 
-HTTP SAPI host that embeds the Elara VM through `elara.h` / `libelara`, for running `.ela` scripts behind a front-end web server (CGI / FastCGI) or locally with a built-in development listener.
+HTTP **SAPI host** that embeds the Elara VM through `elara.h` / `libelara`. It runs `.ela` scripts behind a front-end (CGI / FastCGI) or locally with a PHP-like cleartext development server (`-S`). This host is **not** a production TLS/HTTP/2 server — terminate TLS on nginx, Caddy, or Apache.
 
 ## Highlights
 
 - Keep HTTP and sockets in this host only — never inside the Elara language core
 - Discover Elara from a sibling checkout or an install prefix via `ELARA_ROOT` / `ELARA_PREFIX`
-- Link `libelara` and smoke-test the C ABI from the host crate
-- Grow toward CGI, FastCGI, and a PHP-like `-S` local server on a shared request lifecycle
+- Built-in `-S` / `-t` development server for local cleartext HTTP
+- CGI mode (no `-S`) and a FastCGI worker for deploy behind a front-end
+- Script API: `req` / `res`, forms, cookies, sessions, redirects, HTML escape
 
 ## Prerequisites
 
@@ -55,18 +56,25 @@ Build Elara first if needed:
 cd ../elara && make build
 ```
 
-## Quick Start
+## Quick Start (`-S`)
 
 ```bash
 make discover
-make test
+make build
+cargo run --manifest-path elara_http/Cargo.toml --bin elara-http -- -S 127.0.0.1:8080 -t demos
 ```
 
-The link smoke opens an `elara_State`, evaluates `return 1+1`, and expects `2`.
+Open [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). More demos: [`demos/README.md`](demos/README.md).
+
+Deeper guides: [`docs/`](docs/) (script API, local server, deployment). Portuguese: [`README-PT.md`](README-PT.md).
 
 ## Usage
 
-Host adapters (CGI, FastCGI, `-S`) land as the project grows. Until then, use `make test` / `make quality` to validate the Elara link.
+| Mode | How |
+| --- | --- |
+| Local cleartext | `elara-http -S 127.0.0.1:8080 -t <docroot>` |
+| CGI | `elara-http -t <docroot>` with CGI env + stdin (no `-S`) |
+| FastCGI | library worker (`run_fastcgi_worker`); see `demos/nginx-fastcgi.conf` |
 
 ## Development
 
@@ -74,7 +82,7 @@ Host adapters (CGI, FastCGI, `-S`) land as the project grows. Until then, use `m
 make help       # targets + Elara env docs
 make discover   # print resolved Elara paths
 make check      # cargo check
-make test       # cargo test (needs libelara on LD_LIBRARY_PATH via make)
+make test       # cargo test (needs libelara via make)
 make lint       # clippy -D warnings
 make fmt        # rustfmt
 make quality    # fmt check + clippy + test
@@ -87,8 +95,9 @@ make clean
 | --- | --- |
 | `Makefile` | Root orchestrator |
 | `.make/` | Build, test, quality, Elara discovery |
-| `bin/` | Built artifacts (git-ignored except `.gitkeep`) |
-| `elara_http/` | Host Cargo package |
+| `elara_http/` | Host Cargo package + `elara-http` binary |
+| `demos/` | Sample `.ela` scripts and front-end snippets |
+| `docs/` | Public guides (EN + PT) |
 
 ## License
 
