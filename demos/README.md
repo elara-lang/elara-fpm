@@ -3,7 +3,9 @@
 Run with the built-in cleartext server from the repo root (after `make build`):
 
 ```bash
-cargo run --manifest-path elara_http/Cargo.toml --bin elara-http -- -S 127.0.0.1:8080 -t demos
+make build
+make run
+# or: ./bin/elara-http -S 127.0.0.1:8080 -t demos
 ```
 
 Then open `http://127.0.0.1:8080/hello.ela`.
@@ -20,3 +22,5 @@ Then open `http://127.0.0.1:8080/hello.ela`.
 | `index.ela` | Docroot index that links demos |
 
 Front-end deploy examples: see `nginx-cgi.conf` and `nginx-fastcgi.conf`.
+
+Portuguese: [`README-PT.md`](README-PT.md).

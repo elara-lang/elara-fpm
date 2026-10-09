@@ -26,10 +26,15 @@ pub struct SessionConfig {
     pub max_age: Option<i64>,
 }
 
+/// Default file store: `$TMPDIR/elara/.sessions` (typically `/tmp/elara/.sessions`).
+pub fn default_session_store_dir() -> PathBuf {
+    std::env::temp_dir().join("elara").join(".sessions")
+}
+
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            store_dir: std::env::temp_dir().join("elara-http-sessions"),
+            store_dir: default_session_store_dir(),
             cookie_name: "ELARASESSID".into(),
             path: "/".into(),
             http_only: true,

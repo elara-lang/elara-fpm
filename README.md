@@ -1,6 +1,6 @@
 # Elara HTTP
 
-HTTP **SAPI host** that embeds the Elara VM through `elara.h` / `libelara`. It runs `.ela` scripts behind a front-end (CGI / FastCGI) or locally with a PHP-like cleartext development server (`-S`). This host is **not** a production TLS/HTTP/2 server — terminate TLS on nginx, Caddy, or Apache.
+HTTP SAPI host that embeds the Elara VM through `elara.h` / `libelara`, running `.ela` scripts behind CGI/FastCGI or a PHP-like cleartext development server (`-S`).
 
 ## Highlights
 
@@ -9,6 +9,7 @@ HTTP **SAPI host** that embeds the Elara VM through `elara.h` / `libelara`. It r
 - Built-in `-S` / `-t` development server for local cleartext HTTP
 - CGI mode (no `-S`) and a FastCGI worker for deploy behind a front-end
 - Script API: `req` / `res`, forms, cookies, sessions, redirects, HTML escape
+- File-backed sessions under `$TMPDIR/elara/.sessions` (typically `/tmp/elara/.sessions`)
 
 ## Prerequisites
 
@@ -17,13 +18,21 @@ HTTP **SAPI host** that embeds the Elara VM through `elara.h` / `libelara`. It r
 
 ## Installation
 
-### Build this repository
+### Build from Source
 
 ```bash
 git clone https://github.com/carlosrabelo/elara-http.git
 cd elara-http
 make build
-make test
+```
+
+Install to `~/.local/bin` (default), or system-wide to `/usr/local/bin` (sudo only for the copy):
+
+```bash
+make install
+make install-system
+make uninstall
+make uninstall-system
 ```
 
 ### Elara dependency
@@ -56,19 +65,41 @@ Build Elara first if needed:
 cd ../elara && make build
 ```
 
-## Quick Start (`-S`)
+## Quick Start
 
 ```bash
 make discover
 make build
-cargo run --manifest-path elara_http/Cargo.toml --bin elara-http -- -S 127.0.0.1:8080 -t demos
+make run
 ```
 
-Open [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). More demos: [`demos/README.md`](demos/README.md).
-
-Deeper guides: [`docs/`](docs/) (script API, local server, deployment). Portuguese: [`README-PT.md`](README-PT.md).
+Open [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). More demos: [`demos/README.md`](demos/README.md). Guides: [`docs/`](docs/). Portuguese: [`README-PT.md`](README-PT.md).
 
 ## Usage
+
+### Local development server
+
+```bash
+make run
+# override listen address / docroot
+make run ARGS='-S 127.0.0.1:9090 -t demos'
+# or call the binary directly
+./bin/elara-http -S 127.0.0.1:8080 -t demos
+```
+
+### CGI
+
+With no `-S`, the binary speaks CGI (environment + stdin → stdout):
+
+```bash
+./bin/elara-http -t demos
+```
+
+Sample front-end config: [`demos/nginx-cgi.conf`](demos/nginx-cgi.conf).
+
+### FastCGI
+
+Use the library FastCGI worker behind a front-end. Sample config: [`demos/nginx-fastcgi.conf`](demos/nginx-fastcgi.conf).
 
 | Mode | How |
 | --- | --- |
@@ -76,29 +107,29 @@ Deeper guides: [`docs/`](docs/) (script API, local server, deployment). Portugue
 | CGI | `elara-http -t <docroot>` with CGI env + stdin (no `-S`) |
 | FastCGI | library worker (`run_fastcgi_worker`); see `demos/nginx-fastcgi.conf` |
 
+## Project Layout
+
+```
+Makefile       # Root orchestrator
+.make/         # Build, test, quality, Elara discovery
+elara_http/    # Host Cargo package + elara-http binary
+bin/           # Release binary (git-ignored except .gitkeep)
+demos/         # Sample .ela scripts and nginx snippets
+docs/          # Public guides (EN + PT)
+```
+
 ## Development
 
 ```bash
-make help       # targets + Elara env docs
-make discover   # print resolved Elara paths
-make check      # cargo check
-make test       # cargo test (needs libelara via make)
-make lint       # clippy -D warnings
-make fmt        # rustfmt
-make quality    # fmt check + clippy + test
-make clean
+make build             # Release-build and copy binary to bin/elara-http
+make test              # Run cargo test
+make quality           # Format, clippy, and test
+make install           # Install binary to ~/.local/bin
+make install-system    # Install binary to /usr/local/bin
+make uninstall         # Remove from ~/.local/bin
+make uninstall-system  # Remove from /usr/local/bin
 ```
-
-## Project Layout
-
-| Path | Role |
-| --- | --- |
-| `Makefile` | Root orchestrator |
-| `.make/` | Build, test, quality, Elara discovery |
-| `elara_http/` | Host Cargo package + `elara-http` binary |
-| `demos/` | Sample `.ela` scripts and front-end snippets |
-| `docs/` | Public guides (EN + PT) |
 
 ## License
 
-MIT
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.

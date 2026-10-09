@@ -33,6 +33,6 @@ Operadores podem aumentar limites por processo. Scripts não acessam env a menos
 ## Notas de segurança
 
 - Termine TLS no servidor web de front-end
-- Mantenha o diretório de sessões (`\.sessions` sob o docroot por padrão) inacessível a outros tenants
+- Mantenha o diretório de sessões (`$TMPDIR/elara/.sessions`, tipicamente `/tmp/elara/.sessions`) inacessível a outros tenants
 - Limites de upload aplicam antes do script
 - Não exponha `-S` à internet pública

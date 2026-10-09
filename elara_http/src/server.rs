@@ -83,10 +83,7 @@ pub fn dispatch_request(docroot: &Path, req: &RequestData) -> FinalResponse {
         Route::Script(path) => match load_script_source(&path) {
             Err(e) => e,
             Ok(source) => {
-                let session_cfg = SessionConfig {
-                    store_dir: docroot.join(".sessions"),
-                    ..SessionConfig::default()
-                };
+                let session_cfg = SessionConfig::default();
                 match run_script_with_session(
                     req,
                     &source,

@@ -119,11 +119,7 @@ fn run_script_file(path: &Path, req: &RequestData) -> FinalResponse {
     match load_script_source(path) {
         Err(e) => e,
         Ok(source) => {
-            let root = path.parent().unwrap_or(Path::new("."));
-            let session_cfg = SessionConfig {
-                store_dir: root.join(".sessions"),
-                ..SessionConfig::default()
-            };
+            let session_cfg = SessionConfig::default();
             match run_script_with_session(req, &source, &BodyLimits::default(), Some(&session_cfg))
             {
                 Ok((resp, _)) => resp,

@@ -1,6 +1,6 @@
 # Elara HTTP
 
-Host **SAPI HTTP** que embute a VM Elara via `elara.h` / `libelara`. Roda scripts `.ela` atrás de um front-end (CGI / FastCGI) ou localmente com um servidor de desenvolvimento em texto claro estilo PHP (`-S`). Este host **não** é um servidor TLS/HTTP/2 de produção — termine TLS no nginx, Caddy ou Apache.
+Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, rodando scripts `.ela` atrás de CGI/FastCGI ou de um servidor de desenvolvimento em texto claro estilo PHP (`-S`).
 
 ## Destaques
 
@@ -9,6 +9,7 @@ Host **SAPI HTTP** que embute a VM Elara via `elara.h` / `libelara`. Roda script
 - Servidor embutido `-S` / `-t` para HTTP local em texto claro
 - Modo CGI (sem `-S`) e worker FastCGI para deploy atrás de um front-end
 - API de script: `req` / `res`, forms, cookies, sessions, redirects, escape HTML
+- Sessões em arquivo sob `$TMPDIR/elara/.sessions` (tipicamente `/tmp/elara/.sessions`)
 
 ## Pré-requisitos
 
@@ -17,13 +18,21 @@ Host **SAPI HTTP** que embute a VM Elara via `elara.h` / `libelara`. Roda script
 
 ## Instalação
 
-### Compilar este repositório
+### Build from Source
 
 ```bash
 git clone https://github.com/carlosrabelo/elara-http.git
 cd elara-http
 make build
-make test
+```
+
+Instale em `~/.local/bin` (padrão), ou em todo o sistema em `/usr/local/bin` (sudo só para a cópia):
+
+```bash
+make install
+make install-system
+make uninstall
+make uninstall-system
 ```
 
 ### Dependência Elara
@@ -56,19 +65,41 @@ Compile a Elara antes, se preciso:
 cd ../elara && make build
 ```
 
-## Início rápido (`-S`)
+## Início Rápido
 
 ```bash
 make discover
 make build
-cargo run --manifest-path elara_http/Cargo.toml --bin elara-http -- -S 127.0.0.1:8080 -t demos
+make run
 ```
 
-Abra [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). Mais demos: [`demos/README.md`](demos/README.md).
-
-Guias: [`docs/`](docs/) (API de script, servidor local, deploy). Inglês: [`README.md`](README.md).
+Abra [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). Mais demos: [`demos/README.md`](demos/README.md). Guias: [`docs/`](docs/). Inglês: [`README.md`](README.md).
 
 ## Uso
+
+### Servidor de desenvolvimento local
+
+```bash
+make run
+# sobrescrever endereço / docroot
+make run ARGS='-S 127.0.0.1:9090 -t demos'
+# ou chamar o binário diretamente
+./bin/elara-http -S 127.0.0.1:8080 -t demos
+```
+
+### CGI
+
+Sem `-S`, o binário fala CGI (environment + stdin → stdout):
+
+```bash
+./bin/elara-http -t demos
+```
+
+Config de front-end de exemplo: [`demos/nginx-cgi.conf`](demos/nginx-cgi.conf).
+
+### FastCGI
+
+Use o worker FastCGI da biblioteca atrás de um front-end. Config de exemplo: [`demos/nginx-fastcgi.conf`](demos/nginx-fastcgi.conf).
 
 | Modo | Como |
 | --- | --- |
@@ -76,29 +107,29 @@ Guias: [`docs/`](docs/) (API de script, servidor local, deploy). Inglês: [`READ
 | CGI | `elara-http -t <docroot>` com env CGI + stdin (sem `-S`) |
 | FastCGI | worker da biblioteca (`run_fastcgi_worker`); ver `demos/nginx-fastcgi.conf` |
 
+## Estrutura do Projeto
+
+```
+Makefile       # Orquestrador raiz
+.make/         # Build, test, quality, descoberta Elara
+elara_http/    # Pacote Cargo do host + binário elara-http
+bin/           # Binário de release (git-ignored exceto .gitkeep)
+demos/         # Scripts .ela de exemplo e snippets nginx
+docs/          # Guias públicos (EN + PT)
+```
+
 ## Desenvolvimento
 
 ```bash
-make help       # alvos + docs das env da Elara
-make discover   # imprime caminhos resolvidos
-make check      # cargo check
-make test       # cargo test (precisa de libelara via make)
-make lint       # clippy -D warnings
-make fmt        # rustfmt
-make quality    # fmt check + clippy + test
-make clean
+make build             # Release-build and copy binary to bin/elara-http
+make test              # Run cargo test
+make quality           # Format, clippy, and test
+make install           # Install binary to ~/.local/bin
+make install-system    # Install binary to /usr/local/bin
+make uninstall         # Remove from ~/.local/bin
+make uninstall-system  # Remove from /usr/local/bin
 ```
-
-## Layout do projeto
-
-| Caminho | Papel |
-| --- | --- |
-| `Makefile` | Orquestrador raiz |
-| `.make/` | Build, test, quality, descoberta Elara |
-| `elara_http/` | Pacote Cargo do host + binário `elara-http` |
-| `demos/` | Scripts `.ela` de exemplo e snippets de front-end |
-| `docs/` | Guias públicos (EN + PT) |
 
 ## Licença
 
-MIT
+Este projeto é licenciado sob a Licença MIT — consulte o arquivo [LICENSE](LICENSE) para mais detalhes.

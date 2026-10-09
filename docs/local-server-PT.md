@@ -1,7 +1,8 @@
 # Servidor local de desenvolvimento (`-S`)
 
 ```bash
-elara-http -S 127.0.0.1:8080 -t demos
+make build
+./bin/elara-http -S 127.0.0.1:8080 -t demos
 ```
 
 | Flag | Significado |

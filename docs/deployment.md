@@ -33,6 +33,6 @@ Operators may raise limits per process. Scripts cannot enable env access unless 
 ## Security notes
 
 - Terminate TLS on the front-end web server
-- Keep the session store directory (`\.sessions` under the docroot by default) unreadable by other tenants
+- Keep the session store directory (`$TMPDIR/elara/.sessions`, typically `/tmp/elara/.sessions`) unreadable by other tenants
 - Upload size limits apply before scripts run
 - Do not expose `-S` to the public internet

@@ -43,7 +43,7 @@ pub use server::{
     CliArgs, DevServerConfig, bind_listener, dispatch_request, parse_cli, parse_listen_addr,
     print_listen_banner, run_dev_server,
 };
-pub use session::{FileSessionStore, Session, SessionConfig};
+pub use session::{FileSessionStore, Session, SessionConfig, default_session_store_dir};
 
 /// Open a state, evaluate `return 1+1`, assert the integer result is 2, then close.
 pub fn smoke_eval_one_plus_one() -> Result<(), String> {
