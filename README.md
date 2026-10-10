@@ -5,7 +5,7 @@ HTTP SAPI host that embeds the Elara VM through `elara.h` / `libelara`, running 
 ## Highlights
 
 - Keep HTTP and sockets in this host only — never inside the Elara language core
-- Discover Elara from a sibling checkout or an install prefix via `ELARA_ROOT` / `ELARA_PREFIX`
+- Discover Elara from `/usr/local`, another prefix (`ELARA_PREFIX`), or a sibling checkout (`ELARA_ROOT`)
 - Built-in `-S` / `-t` development server for local cleartext HTTP
 - CGI mode (no `-S`) and a FastCGI worker for deploy behind a front-end
 - Script API: `req` / `res`, forms, cookies, sessions, redirects, HTML escape
@@ -41,20 +41,20 @@ Elara HTTP does not vendor the language tree. The build resolves headers and lib
 
 | Mode | When | Headers | Library |
 | --- | --- | --- | --- |
-| Install | `ELARA_PREFIX` is set | `$ELARA_PREFIX/include/elara.h` | `$ELARA_PREFIX/lib/libelara.*` |
-| Sibling | `ELARA_ROOT` or `../elara` | `$ELARA_ROOT/elara/include/elara.h` | `$ELARA_ROOT/bin` or `elara/target/release` |
+| Install | `/usr/local` contains the install, or `ELARA_PREFIX` is set | `$prefix/include/elara.h` | `$prefix/lib/libelara.*` |
+| Sibling | `ELARA_ROOT` is set, or `../elara` when no install is found | `$ELARA_ROOT/elara/include/elara.h` | `$ELARA_ROOT/bin` or `elara/target/release` |
 
-If both `ELARA_PREFIX` and `ELARA_ROOT` are set, **install mode wins**.
+With neither variable set, an install under `/usr/local` is used when `include/elara.h` and `lib/libelara.*` are there; otherwise the sibling checkout is used. If both `ELARA_PREFIX` and `ELARA_ROOT` are set, **install mode wins**. `ELARA_ROOT` selects the checkout even when `/usr/local` also has Elara.
 
 ```bash
-# Sibling (default when ../elara exists)
+# Default: /usr/local when Elara is installed there
 make discover
 
-# Explicit sibling root
-ELARA_ROOT=/path/to/elara make discover
+# Explicit prefix
+ELARA_PREFIX=/opt/elara make discover
 
-# Prefix install
-ELARA_PREFIX=/usr/local make discover
+# Sibling checkout (overrides /usr/local)
+ELARA_ROOT=/path/to/elara make discover
 ```
 
 Missing Elara fails with a non-zero exit and names `ELARA_ROOT` / `ELARA_PREFIX`.

@@ -10,13 +10,14 @@ ARGS ?= -S 127.0.0.1:8080 -t demos
 help: ## Show available targets
 	@$(MAKE) -C elara_http help
 	@echo ""
-	@echo "Elara discovery (install mode wins if both are set):"
+	@echo "Elara discovery (/usr/local when installed; ELARA_PREFIX wins over ELARA_ROOT):"
+	@echo "  default       /usr/local if include/elara.h and lib/libelara.* are there; else ../elara"
 	@echo "  ELARA_PREFIX  Install prefix with include/elara.h and lib/libelara.*"
-	@echo "  ELARA_ROOT    Elara repository root (sibling checkout); default ../elara"
+	@echo "  ELARA_ROOT    Elara repository root (sibling checkout; overrides /usr/local)"
 	@echo ""
 	@echo "  discover        Resolve elara.h / libelara (also available here)"
 
-discover: ## Resolve elara.h / libelara (sibling or prefix); fail with env hints
+discover: ## Resolve elara.h / libelara (/usr/local, prefix, or sibling)
 	@.make/elara-env.sh --print
 
 setup: ## Fetch crate dependencies

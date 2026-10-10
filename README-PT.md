@@ -5,7 +5,7 @@ Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, rodando scripts
 ## Destaques
 
 - Manter HTTP e sockets só neste host — nunca no núcleo da linguagem Elara
-- Descobrir a Elara a partir de um checkout irmão ou de um prefixo via `ELARA_ROOT` / `ELARA_PREFIX`
+- Descobrir a Elara em `/usr/local`, noutro prefixo (`ELARA_PREFIX`) ou num checkout irmão (`ELARA_ROOT`)
 - Servidor embutido `-S` / `-t` para HTTP local em texto claro
 - Modo CGI (sem `-S`) e worker FastCGI para deploy atrás de um front-end
 - API de script: `req` / `res`, forms, cookies, sessions, redirects, escape HTML
@@ -41,20 +41,20 @@ O Elara HTTP não incorpora a árvore da linguagem. O build resolve headers e bi
 
 | Modo | Quando | Headers | Biblioteca |
 | --- | --- | --- | --- |
-| Install | `ELARA_PREFIX` definido | `$ELARA_PREFIX/include/elara.h` | `$ELARA_PREFIX/lib/libelara.*` |
-| Sibling | `ELARA_ROOT` ou `../elara` | `$ELARA_ROOT/elara/include/elara.h` | `$ELARA_ROOT/bin` ou `elara/target/release` |
+| Install | `/usr/local` contém a instalação, ou `ELARA_PREFIX` está definido | `$prefix/include/elara.h` | `$prefix/lib/libelara.*` |
+| Sibling | `ELARA_ROOT` está definido, ou `../elara` quando não há instalação | `$ELARA_ROOT/elara/include/elara.h` | `$ELARA_ROOT/bin` ou `elara/target/release` |
 
-Se `ELARA_PREFIX` e `ELARA_ROOT` estiverem definidos, o **modo install vence**.
+Sem nenhuma das variáveis, uma instalação em `/usr/local` é usada quando existem `include/elara.h` e `lib/libelara.*`; caso contrário usa-se o checkout irmão. Se `ELARA_PREFIX` e `ELARA_ROOT` estiverem definidos, o **modo install vence**. `ELARA_ROOT` seleciona o checkout mesmo quando `/usr/local` também tem a Elara.
 
 ```bash
-# Sibling (padrão quando ../elara existe)
+# Padrão: /usr/local quando a Elara está instalada lá
 make discover
 
-# Root irmão explícito
-ELARA_ROOT=/caminho/para/elara make discover
+# Prefixo explícito
+ELARA_PREFIX=/opt/elara make discover
 
-# Prefixo instalado
-ELARA_PREFIX=/usr/local make discover
+# Checkout irmão (vence /usr/local)
+ELARA_ROOT=/caminho/para/elara make discover
 ```
 
 Elara ausente termina com exit ≠ 0 e menciona `ELARA_ROOT` / `ELARA_PREFIX`.
