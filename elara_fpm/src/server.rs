@@ -192,11 +192,13 @@ fn write_http_response(stream: &mut TcpStream, resp: &FinalResponse) -> Result<(
 #[derive(Debug, Clone)]
 pub struct CliArgs {
     pub listen: Option<SocketAddr>,
+    pub fastcgi: Option<String>,
     pub docroot: PathBuf,
 }
 
 pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
     let mut listen = None;
+    let mut fastcgi = None;
     let mut docroot = std::env::current_dir().map_err(|e| e.to_string())?;
     let mut i = 1usize; // skip argv[0]
     while i < args.len() {
@@ -205,6 +207,13 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
                 i += 1;
                 let addr = args.get(i).ok_or("-S requires addr:port")?;
                 listen = Some(parse_listen_addr(addr)?);
+            }
+            "-F" => {
+                i += 1;
+                let addr = args
+                    .get(i)
+                    .ok_or("-F requires addr:port or an absolute socket path")?;
+                fastcgi = Some(addr.clone());
             }
             "-t" => {
                 i += 1;
@@ -215,5 +224,12 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
         }
         i += 1;
     }
-    Ok(CliArgs { listen, docroot })
+    if listen.is_some() && fastcgi.is_some() {
+        return Err("-S and -F cannot be used together".into());
+    }
+    Ok(CliArgs {
+        listen,
+        fastcgi,
+        docroot,
+    })
 }
