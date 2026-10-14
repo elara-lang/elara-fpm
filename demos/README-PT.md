@@ -1,11 +1,11 @@
-# Demos do Elara HTTP
+# Demos do Elara FPM
 
 Rode com o servidor embutido em texto claro a partir da raiz do repositório (depois de `make build`):
 
 ```bash
 make build
 make run
-# ou: ./bin/elara-http -S 127.0.0.1:8080 -t demos
+# ou: ./bin/elara-fpm -S 127.0.0.1:8080 -t demos
 ```
 
 Depois abra `http://127.0.0.1:8080/hello.ela`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/../elara_http" && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../elara_fpm" && pwd)"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/bin}"
 CARGO="${CARGO:-cargo}"

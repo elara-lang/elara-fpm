@@ -1,4 +1,4 @@
-# Elara HTTP
+# Elara FPM
 
 Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, rodando scripts `.ela` atrás de CGI/FastCGI ou de um servidor de desenvolvimento em texto claro estilo PHP (`-S`).
 
@@ -21,8 +21,8 @@ Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, rodando scripts
 ### Build from Source
 
 ```bash
-git clone https://github.com/carlosrabelo/elara-http.git
-cd elara-http
+git clone https://github.com/carlosrabelo/elara-fpm.git
+cd elara-fpm
 make build
 ```
 
@@ -37,7 +37,7 @@ make uninstall-system
 
 ### Dependência Elara
 
-O Elara HTTP não incorpora a árvore da linguagem. O build resolve headers e bibliotecas nesta ordem:
+O Elara FPM não incorpora a árvore da linguagem. O build resolve headers e bibliotecas nesta ordem:
 
 | Modo | Quando | Headers | Biblioteca |
 | --- | --- | --- | --- |
@@ -84,7 +84,7 @@ make run
 # sobrescrever endereço / docroot
 make run ARGS='-S 127.0.0.1:9090 -t demos'
 # ou chamar o binário diretamente
-./bin/elara-http -S 127.0.0.1:8080 -t demos
+./bin/elara-fpm -S 127.0.0.1:8080 -t demos
 ```
 
 ### CGI
@@ -92,7 +92,7 @@ make run ARGS='-S 127.0.0.1:9090 -t demos'
 Sem `-S`, o binário fala CGI (environment + stdin → stdout):
 
 ```bash
-./bin/elara-http -t demos
+./bin/elara-fpm -t demos
 ```
 
 Config de front-end de exemplo: [`demos/nginx-cgi.conf`](demos/nginx-cgi.conf).
@@ -103,8 +103,8 @@ Use o worker FastCGI da biblioteca atrás de um front-end. Config de exemplo: [`
 
 | Modo | Como |
 | --- | --- |
-| Local texto claro | `elara-http -S 127.0.0.1:8080 -t <docroot>` |
-| CGI | `elara-http -t <docroot>` com env CGI + stdin (sem `-S`) |
+| Local texto claro | `elara-fpm -S 127.0.0.1:8080 -t <docroot>` |
+| CGI | `elara-fpm -t <docroot>` com env CGI + stdin (sem `-S`) |
 | FastCGI | worker da biblioteca (`run_fastcgi_worker`); ver `demos/nginx-fastcgi.conf` |
 
 ## Estrutura do Projeto
@@ -112,7 +112,7 @@ Use o worker FastCGI da biblioteca atrás de um front-end. Config de exemplo: [`
 ```
 Makefile       # Orquestrador raiz
 .make/         # Build, test, quality, descoberta Elara
-elara_http/    # Pacote Cargo do host + binário elara-http
+elara_fpm/    # Pacote Cargo do host + binário elara-fpm
 bin/           # Binário de release (git-ignored exceto .gitkeep)
 demos/         # Scripts .ela de exemplo e snippets nginx
 docs/          # Guias públicos (EN + PT)
@@ -121,7 +121,7 @@ docs/          # Guias públicos (EN + PT)
 ## Desenvolvimento
 
 ```bash
-make build             # Release-build and copy binary to bin/elara-http
+make build             # Release-build and copy binary to bin/elara-fpm
 make test              # Run cargo test
 make quality           # Format, clippy, and test
 make install           # Install binary to ~/.local/bin

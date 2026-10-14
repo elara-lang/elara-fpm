@@ -1,3 +1,3 @@
 res.set_status(200)
 res.header("Content-Type", "text/plain; charset=utf-8")
-res.write("Hello from Elara HTTP\n")
+res.write("Hello from Elara FPM\n")

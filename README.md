@@ -1,4 +1,4 @@
-# Elara HTTP
+# Elara FPM
 
 HTTP SAPI host that embeds the Elara VM through `elara.h` / `libelara`, running `.ela` scripts behind CGI/FastCGI or a PHP-like cleartext development server (`-S`).
 
@@ -21,8 +21,8 @@ HTTP SAPI host that embeds the Elara VM through `elara.h` / `libelara`, running 
 ### Build from Source
 
 ```bash
-git clone https://github.com/carlosrabelo/elara-http.git
-cd elara-http
+git clone https://github.com/carlosrabelo/elara-fpm.git
+cd elara-fpm
 make build
 ```
 
@@ -37,7 +37,7 @@ make uninstall-system
 
 ### Elara dependency
 
-Elara HTTP does not vendor the language tree. The build resolves headers and libraries in this order:
+Elara FPM does not vendor the language tree. The build resolves headers and libraries in this order:
 
 | Mode | When | Headers | Library |
 | --- | --- | --- | --- |
@@ -84,7 +84,7 @@ make run
 # override listen address / docroot
 make run ARGS='-S 127.0.0.1:9090 -t demos'
 # or call the binary directly
-./bin/elara-http -S 127.0.0.1:8080 -t demos
+./bin/elara-fpm -S 127.0.0.1:8080 -t demos
 ```
 
 ### CGI
@@ -92,7 +92,7 @@ make run ARGS='-S 127.0.0.1:9090 -t demos'
 With no `-S`, the binary speaks CGI (environment + stdin → stdout):
 
 ```bash
-./bin/elara-http -t demos
+./bin/elara-fpm -t demos
 ```
 
 Sample front-end config: [`demos/nginx-cgi.conf`](demos/nginx-cgi.conf).
@@ -103,8 +103,8 @@ Use the library FastCGI worker behind a front-end. Sample config: [`demos/nginx-
 
 | Mode | How |
 | --- | --- |
-| Local cleartext | `elara-http -S 127.0.0.1:8080 -t <docroot>` |
-| CGI | `elara-http -t <docroot>` with CGI env + stdin (no `-S`) |
+| Local cleartext | `elara-fpm -S 127.0.0.1:8080 -t <docroot>` |
+| CGI | `elara-fpm -t <docroot>` with CGI env + stdin (no `-S`) |
 | FastCGI | library worker (`run_fastcgi_worker`); see `demos/nginx-fastcgi.conf` |
 
 ## Project Layout
@@ -112,7 +112,7 @@ Use the library FastCGI worker behind a front-end. Sample config: [`demos/nginx-
 ```
 Makefile       # Root orchestrator
 .make/         # Build, test, quality, Elara discovery
-elara_http/    # Host Cargo package + elara-http binary
+elara_fpm/    # Host Cargo package + elara-fpm binary
 bin/           # Release binary (git-ignored except .gitkeep)
 demos/         # Sample .ela scripts and nginx snippets
 docs/          # Public guides (EN + PT)
@@ -121,7 +121,7 @@ docs/          # Public guides (EN + PT)
 ## Development
 
 ```bash
-make build             # Release-build and copy binary to bin/elara-http
+make build             # Release-build and copy binary to bin/elara-fpm
 make test              # Run cargo test
 make quality           # Format, clippy, and test
 make install           # Install binary to ~/.local/bin

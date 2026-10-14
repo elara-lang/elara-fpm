@@ -1,11 +1,11 @@
-# Elara HTTP demos
+# Elara FPM demos
 
 Run with the built-in cleartext server from the repo root (after `make build`):
 
 ```bash
 make build
 make run
-# or: ./bin/elara-http -S 127.0.0.1:8080 -t demos
+# or: ./bin/elara-fpm -S 127.0.0.1:8080 -t demos
 ```
 
 Then open `http://127.0.0.1:8080/hello.ela`.

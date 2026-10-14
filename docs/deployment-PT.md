@@ -5,7 +5,7 @@
 Execute sem `-S`. O processo lê o ambiente CGI e o stdin, e escreve a resposta CGI no stdout:
 
 ```bash
-elara-http -t /var/www/app
+elara-fpm -t /var/www/app
 ```
 
 Env típicas: `REQUEST_METHOD`, `PATH_INFO`, `QUERY_STRING`, `CONTENT_LENGTH`, `HTTP_*`.

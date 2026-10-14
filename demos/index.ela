@@ -1,6 +1,6 @@
 res.header("Content-Type", "text/html; charset=utf-8")
-res.write("<!doctype html><html><head><link rel=\"stylesheet\" href=\"/style.css\"><title>Elara HTTP demos</title></head><body>")
-res.write("<h1>Elara HTTP demos</h1><ul>")
+res.write("<!doctype html><html><head><link rel=\"stylesheet\" href=\"/style.css\"><title>Elara FPM demos</title></head><body>")
+res.write("<h1>Elara FPM demos</h1><ul>")
 res.write("<li><a href=\"/hello.ela\">hello</a></li>")
 res.write("<li><a href=\"/echo.ela\">echo</a></li>")
 res.write("<li><a href=\"/form.ela\">form</a></li>")

@@ -1,0 +1,15 @@
+[package]
+name = "elara_fpm"
+version = "0.1.0"
+edition = "2024"
+description = "Elara FPM SAPI host"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "elara-fpm"
+path = "src/bin/elara-fpm.rs"
+
+[dependencies]
+
+[dev-dependencies]

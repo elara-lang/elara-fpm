@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BINARY_NAME="${BINARY_NAME:-elara-http}"
+BINARY_NAME="${BINARY_NAME:-elara-fpm}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$REPO_ROOT/bin/$BINARY_NAME"
 

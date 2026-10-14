@@ -1,4 +1,4 @@
-# Docs do Elara HTTP
+# Docs do Elara FPM
 
 | Guia | EN | PT |
 | --- | --- | --- |

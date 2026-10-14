@@ -4,7 +4,7 @@
 # Usage: source from other .make scripts, or: .make/elara-env.sh [--print|--check]
 set -euo pipefail
 
-elara_http_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+elara_fpm_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 elara_fail() {
 	echo "error: Elara runtime not found ($1)." >&2
@@ -49,7 +49,7 @@ elara_resolve() {
 		ELARA_LIBDIR="${prefix}/lib"
 	else
 		if [[ -z "$root" ]]; then
-			local sibling="${elara_http_root}/../elara"
+			local sibling="${elara_fpm_root}/../elara"
 			if [[ -d "$sibling" ]]; then
 				root="$(cd "$sibling" && pwd)"
 			fi

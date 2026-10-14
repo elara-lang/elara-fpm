@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/elara-env.sh"
 elara_resolve
 
-ROOT_DIR="$(cd "$SCRIPT_DIR/../elara_http" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../elara_fpm" && pwd)"
 CARGO="${CARGO:-cargo}"
 export ELARA_INCLUDE ELARA_LIBDIR ELARA_LIB ELARA_MODE
 export LD_LIBRARY_PATH="${ELARA_LIBDIR}${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

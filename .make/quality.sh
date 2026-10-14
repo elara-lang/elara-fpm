@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../elara_http" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../elara_fpm" && pwd)"
 CARGO="${CARGO:-cargo}"
 
 # shellcheck source=elara-env.sh

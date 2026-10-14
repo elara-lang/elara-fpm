@@ -2,7 +2,7 @@
 
 ```bash
 make build
-./bin/elara-http -S 127.0.0.1:8080 -t demos
+./bin/elara-fpm -S 127.0.0.1:8080 -t demos
 ```
 
 | Flag | Significado |

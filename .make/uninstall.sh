@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BINARY_NAME="${BINARY_NAME:-elara-http}"
+BINARY_NAME="${BINARY_NAME:-elara-fpm}"
 
 # Prefer the invoking user's home when running under sudo.
 user_home() {
