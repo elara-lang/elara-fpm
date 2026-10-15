@@ -1,8 +1,11 @@
 //! Minimal sequential FastCGI worker.
 
 use std::collections::BTreeMap;
+use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
+use std::os::unix::fs::FileTypeExt;
+use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
 use crate::cgi::{format_cgi_response, handle_cgi_request};
@@ -23,6 +26,14 @@ pub struct FastCgiConfig {
 
 /// Serve FastCGI requests sequentially until the listener fails.
 pub fn run_fastcgi_worker(cfg: &FastCgiConfig) -> Result<(), String> {
+    if cfg.listen.starts_with('/') {
+        run_fastcgi_unix(cfg)
+    } else {
+        run_fastcgi_tcp(cfg)
+    }
+}
+
+fn run_fastcgi_tcp(cfg: &FastCgiConfig) -> Result<(), String> {
     let listener =
         TcpListener::bind(&cfg.listen).map_err(|e| format!("bind {}: {e}", cfg.listen))?;
     eprintln!(
@@ -43,8 +54,46 @@ pub fn run_fastcgi_worker(cfg: &FastCgiConfig) -> Result<(), String> {
     Ok(())
 }
 
-/// Handle one TCP connection (may contain one request in MVP).
-pub fn handle_fastcgi_connection(stream: &mut TcpStream, docroot: &Path) -> Result<(), String> {
+fn prepare_unix_listen_path(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let meta = fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if meta.file_type().is_socket() {
+        fs::remove_file(path).map_err(|e| format!("replace socket {}: {e}", path.display()))?;
+        Ok(())
+    } else {
+        Err(format!("{} exists and is not a socket", path.display()))
+    }
+}
+
+fn run_fastcgi_unix(cfg: &FastCgiConfig) -> Result<(), String> {
+    let path = Path::new(&cfg.listen);
+    prepare_unix_listen_path(path)?;
+    let listener = UnixListener::bind(path).map_err(|e| format!("bind {}: {e}", cfg.listen))?;
+    eprintln!(
+        "elara-fpm FastCGI listening on {} (docroot {})",
+        cfg.listen,
+        cfg.docroot.display()
+    );
+    for conn in listener.incoming() {
+        match conn {
+            Ok(mut stream) => {
+                if let Err(e) = handle_fastcgi_connection(&mut stream, &cfg.docroot) {
+                    eprintln!("fastcgi connection error: {e}");
+                }
+            }
+            Err(e) => eprintln!("fastcgi accept error: {e}"),
+        }
+    }
+    Ok(())
+}
+
+/// Handle one FastCGI connection (TCP or Unix).
+pub fn handle_fastcgi_connection(
+    stream: &mut (impl Read + Write),
+    docroot: &Path,
+) -> Result<(), String> {
     let mut params = BTreeMap::new();
     let mut stdin = Vec::new();
     let mut request_id: u16 = 1;
@@ -75,7 +124,7 @@ pub fn handle_fastcgi_connection(stream: &mut TcpStream, docroot: &Path) -> Resu
     Ok(())
 }
 
-fn read_record(stream: &mut TcpStream) -> Result<Option<(u8, u16, Vec<u8>)>, String> {
+fn read_record(stream: &mut dyn Read) -> Result<Option<(u8, u16, Vec<u8>)>, String> {
     let mut header = [0u8; 8];
     match stream.read_exact(&mut header) {
         Ok(()) => {}
