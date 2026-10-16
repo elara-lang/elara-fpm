@@ -14,7 +14,14 @@ Snippet nginx: [`demos/nginx-cgi.conf`](../demos/nginx-cgi.conf).
 
 ## FastCGI
 
-Worker de longa duração que aceita conexões FastCGI e reusa o processo mantendo um estado de VM isolado por request. Snippet nginx: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
+Worker de longa duração via `-F`. Escute em TCP (`addr:port`) ou em um caminho absoluto de socket Unix. Mantém um estado de VM isolado por request. Não use `-S` junto com `-F`.
+
+```bash
+elara-fpm -F 127.0.0.1:9000 -t /var/www/app
+elara-fpm -F /run/elara-fpm.sock -t /var/www/app
+```
+
+Snippet nginx: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
 
 ## Document root
 

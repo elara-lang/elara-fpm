@@ -99,13 +99,18 @@ Config de front-end de exemplo: [`demos/nginx-cgi.conf`](demos/nginx-cgi.conf).
 
 ### FastCGI
 
-Use o worker FastCGI da biblioteca atrás de um front-end. Config de exemplo: [`demos/nginx-fastcgi.conf`](demos/nginx-fastcgi.conf).
+Worker de longa duração via `-F` (TCP ou socket Unix). Não combine com `-S`. Nginx de exemplo: [`demos/nginx-fastcgi.conf`](demos/nginx-fastcgi.conf).
+
+```bash
+./bin/elara-fpm -F 127.0.0.1:9000 -t demos
+./bin/elara-fpm -F /run/elara-fpm.sock -t demos
+```
 
 | Modo | Como |
 | --- | --- |
 | Local texto claro | `elara-fpm -S 127.0.0.1:8080 -t <docroot>` |
-| CGI | `elara-fpm -t <docroot>` com env CGI + stdin (sem `-S`) |
-| FastCGI | worker da biblioteca (`run_fastcgi_worker`); ver `demos/nginx-fastcgi.conf` |
+| CGI | `elara-fpm -t <docroot>` com env CGI + stdin (sem `-S` / `-F`) |
+| FastCGI | `elara-fpm -F 127.0.0.1:9000 -t <docroot>` ou `-F /caminho/para.sock` |
 
 ## Estrutura do Projeto
 

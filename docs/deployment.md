@@ -14,7 +14,14 @@ Sample nginx snippet: [`demos/nginx-cgi.conf`](../demos/nginx-cgi.conf).
 
 ## FastCGI
 
-Long-running worker that accepts FastCGI connections and reuses the process while keeping one isolated VM state per request. Sample nginx snippet: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
+Long-running worker via `-F`. Listen on TCP (`addr:port`) or an absolute Unix socket path. Keep one isolated VM state per request. Do not pass `-S` together with `-F`.
+
+```bash
+elara-fpm -F 127.0.0.1:9000 -t /var/www/app
+elara-fpm -F /run/elara-fpm.sock -t /var/www/app
+```
+
+Sample nginx snippet: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
 
 ## Document root
 
