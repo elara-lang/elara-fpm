@@ -61,18 +61,132 @@ pub fn run_dev_server(cfg: DevServerConfig) -> Result<(), String> {
     Ok(())
 }
 
+/// Handle one client connection for the development server (exported for tests).
+pub fn serve_dev_connection(stream: TcpStream, docroot: &Path) -> Result<(), String> {
+    handle_connection(stream, docroot)
+}
+
+enum FrameError {
+    Eof,
+    PayloadTooLarge,
+    NotImplemented,
+    Bad(String),
+}
+
 fn handle_connection(mut stream: TcpStream, docroot: &Path) -> Result<(), String> {
-    let mut buf = vec![0u8; 64 * 1024];
-    let n = stream.read(&mut buf).map_err(|e| e.to_string())?;
-    if n == 0 {
-        return Ok(());
-    }
-    let raw = String::from_utf8_lossy(&buf[..n]);
-    let (req, _) = parse_http_request(&raw)?;
-    let response = dispatch_request(docroot, &req);
+    let limits = BodyLimits::default();
+    let response = match read_http_request(&mut stream, limits.max_body_bytes) {
+        Ok(req) => dispatch_request(docroot, &req),
+        Err(FrameError::Eof) => return Ok(()),
+        Err(FrameError::PayloadTooLarge) => host_error_page(413, "Payload Too Large"),
+        Err(FrameError::NotImplemented) => host_error_page(501, "Not Implemented"),
+        Err(FrameError::Bad(e)) => return Err(e),
+    };
     write_http_response(&mut stream, &response)?;
     let _ = stream.flush();
     Ok(())
+}
+
+fn find_header_end(buf: &[u8]) -> Option<usize> {
+    buf.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+fn read_http_request(stream: &mut TcpStream, max_body: usize) -> Result<RequestData, FrameError> {
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let header_end = loop {
+        if let Some(pos) = find_header_end(&buf) {
+            break pos;
+        }
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| FrameError::Bad(e.to_string()))?;
+        if n == 0 {
+            return if buf.is_empty() {
+                Err(FrameError::Eof)
+            } else {
+                Err(FrameError::Bad("incomplete HTTP headers".into()))
+            };
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() > 64 * 1024 {
+            return Err(FrameError::Bad("HTTP headers too large".into()));
+        }
+    };
+
+    let head = std::str::from_utf8(&buf[..header_end])
+        .map_err(|_| FrameError::Bad("HTTP headers are not UTF-8".into()))?;
+    let mut lines = head.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or(FrameError::Bad("empty request".into()))?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts
+        .next()
+        .ok_or(FrameError::Bad("missing method".into()))?
+        .to_string();
+    let target = parts
+        .next()
+        .ok_or(FrameError::Bad("missing target".into()))?;
+    let _version = parts
+        .next()
+        .ok_or(FrameError::Bad("missing version".into()))?;
+
+    let (path, query) = match target.split_once('?') {
+        Some((p, q)) => (p.to_string(), q.to_string()),
+        None => (target.to_string(), String::new()),
+    };
+
+    let mut headers = std::collections::BTreeMap::new();
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        }
+    }
+
+    if headers.get("transfer-encoding").is_some_and(|v| {
+        v.to_ascii_lowercase()
+            .split(',')
+            .any(|t| t.trim() == "chunked")
+    }) {
+        return Err(FrameError::NotImplemented);
+    }
+
+    let body_len = match headers.get("content-length") {
+        Some(cl) => cl
+            .parse::<usize>()
+            .map_err(|_| FrameError::Bad("invalid Content-Length".into()))?,
+        None => 0,
+    };
+    if body_len > max_body {
+        return Err(FrameError::PayloadTooLarge);
+    }
+
+    let body_start = header_end + 4;
+    let mut body = if buf.len() > body_start {
+        buf[body_start..].to_vec()
+    } else {
+        Vec::new()
+    };
+    while body.len() < body_len {
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| FrameError::Bad(e.to_string()))?;
+        if n == 0 {
+            return Err(FrameError::Bad("incomplete HTTP body".into()));
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    body.truncate(body_len);
+
+    Ok(RequestData {
+        method,
+        path,
+        query,
+        headers,
+        body: String::from_utf8_lossy(&body).into_owned(),
+        ..RequestData::default()
+    })
 }
 
 /// Dispatch one request against the document root (script or static).
@@ -106,51 +220,6 @@ pub fn dispatch_request(docroot: &Path, req: &RequestData) -> FinalResponse {
             }
         },
     }
-}
-
-fn parse_http_request(raw: &str) -> Result<(RequestData, usize), String> {
-    let header_end = raw
-        .find("\r\n\r\n")
-        .ok_or_else(|| "incomplete HTTP headers".to_string())?;
-    let head = &raw[..header_end];
-    let mut lines = head.split("\r\n");
-    let request_line = lines.next().ok_or("empty request")?;
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().ok_or("missing method")?.to_string();
-    let target = parts.next().ok_or("missing target")?;
-    let _version = parts.next().ok_or("missing version")?;
-
-    let (path, query) = match target.split_once('?') {
-        Some((p, q)) => (p.to_string(), q.to_string()),
-        None => (target.to_string(), String::new()),
-    };
-
-    let mut headers = std::collections::BTreeMap::new();
-    for line in lines {
-        if let Some((name, value)) = line.split_once(':') {
-            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
-        }
-    }
-
-    let body_start = header_end + 4;
-    let mut body = String::new();
-    if let Some(cl) = headers.get("content-length") {
-        let len: usize = cl.parse().unwrap_or(0);
-        let end = (body_start + len).min(raw.len());
-        body = raw[body_start..end].to_string();
-    }
-
-    Ok((
-        RequestData {
-            method,
-            path,
-            query,
-            headers,
-            body,
-            ..RequestData::default()
-        },
-        body_start,
-    ))
 }
 
 fn write_http_response(stream: &mut TcpStream, resp: &FinalResponse) -> Result<(), String> {

@@ -41,7 +41,7 @@ pub use script_api::{
 };
 pub use server::{
     CliArgs, DevServerConfig, bind_listener, dispatch_request, parse_cli, parse_listen_addr,
-    print_listen_banner, run_dev_server,
+    print_listen_banner, run_dev_server, serve_dev_connection,
 };
 pub use session::{FileSessionStore, Session, SessionConfig, default_session_store_dir};
 
