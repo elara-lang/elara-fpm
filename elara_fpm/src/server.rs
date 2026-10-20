@@ -73,26 +73,69 @@ enum FrameError {
     Bad(String),
 }
 
+struct FramedRequest {
+    req: RequestData,
+    close: bool,
+}
+
 fn handle_connection(mut stream: TcpStream, docroot: &Path) -> Result<(), String> {
     let limits = BodyLimits::default();
-    let response = match read_http_request(&mut stream, limits.max_body_bytes) {
-        Ok(req) => dispatch_request(docroot, &req),
-        Err(FrameError::Eof) => return Ok(()),
-        Err(FrameError::PayloadTooLarge) => host_error_page(413, "Payload Too Large"),
-        Err(FrameError::NotImplemented) => host_error_page(501, "Not Implemented"),
-        Err(FrameError::Bad(e)) => return Err(e),
-    };
-    write_http_response(&mut stream, &response)?;
-    let _ = stream.flush();
-    Ok(())
+    let mut pending = Vec::new();
+    loop {
+        let framed = match read_http_request(&mut stream, &mut pending, limits.max_body_bytes) {
+            Ok(f) => f,
+            Err(FrameError::Eof) => return Ok(()),
+            Err(FrameError::PayloadTooLarge) => {
+                write_http_response(
+                    &mut stream,
+                    &host_error_page(413, "Payload Too Large"),
+                    true,
+                )?;
+                let _ = stream.flush();
+                return Ok(());
+            }
+            Err(FrameError::NotImplemented) => {
+                write_http_response(&mut stream, &host_error_page(501, "Not Implemented"), true)?;
+                let _ = stream.flush();
+                return Ok(());
+            }
+            Err(FrameError::Bad(e)) => return Err(e),
+        };
+        let response = dispatch_request(docroot, &framed.req);
+        write_http_response(&mut stream, &response, framed.close)?;
+        let _ = stream.flush();
+        if framed.close {
+            return Ok(());
+        }
+    }
 }
 
 fn find_header_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
-fn read_http_request(stream: &mut TcpStream, max_body: usize) -> Result<RequestData, FrameError> {
-    let mut buf = Vec::new();
+fn connection_should_close(
+    version: &str,
+    headers: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    if let Some(c) = headers.get("connection") {
+        let c = c.to_ascii_lowercase();
+        if c.split(',').any(|t| t.trim() == "close") {
+            return true;
+        }
+        if c.split(',').any(|t| t.trim() == "keep-alive") {
+            return false;
+        }
+    }
+    !version.eq_ignore_ascii_case("HTTP/1.1")
+}
+
+fn read_http_request(
+    stream: &mut TcpStream,
+    pending: &mut Vec<u8>,
+    max_body: usize,
+) -> Result<FramedRequest, FrameError> {
+    let mut buf = std::mem::take(pending);
     let mut chunk = [0u8; 4096];
     let header_end = loop {
         if let Some(pos) = find_header_end(&buf) {
@@ -128,9 +171,10 @@ fn read_http_request(stream: &mut TcpStream, max_body: usize) -> Result<RequestD
     let target = parts
         .next()
         .ok_or(FrameError::Bad("missing target".into()))?;
-    let _version = parts
+    let version = parts
         .next()
-        .ok_or(FrameError::Bad("missing version".into()))?;
+        .ok_or(FrameError::Bad("missing version".into()))?
+        .to_string();
 
     let (path, query) = match target.split_once('?') {
         Some((p, q)) => (p.to_string(), q.to_string()),
@@ -162,30 +206,31 @@ fn read_http_request(stream: &mut TcpStream, max_body: usize) -> Result<RequestD
         return Err(FrameError::PayloadTooLarge);
     }
 
+    let close = connection_should_close(&version, &headers);
     let body_start = header_end + 4;
-    let mut body = if buf.len() > body_start {
-        buf[body_start..].to_vec()
-    } else {
-        Vec::new()
-    };
-    while body.len() < body_len {
+    let need = body_start + body_len;
+    while buf.len() < need {
         let n = stream
             .read(&mut chunk)
             .map_err(|e| FrameError::Bad(e.to_string()))?;
         if n == 0 {
             return Err(FrameError::Bad("incomplete HTTP body".into()));
         }
-        body.extend_from_slice(&chunk[..n]);
+        buf.extend_from_slice(&chunk[..n]);
     }
-    body.truncate(body_len);
+    let body = buf[body_start..need].to_vec();
+    *pending = buf[need..].to_vec();
 
-    Ok(RequestData {
-        method,
-        path,
-        query,
-        headers,
-        body: String::from_utf8_lossy(&body).into_owned(),
-        ..RequestData::default()
+    Ok(FramedRequest {
+        req: RequestData {
+            method,
+            path,
+            query,
+            headers,
+            body: String::from_utf8_lossy(&body).into_owned(),
+            ..RequestData::default()
+        },
+        close,
     })
 }
 
@@ -222,7 +267,11 @@ pub fn dispatch_request(docroot: &Path, req: &RequestData) -> FinalResponse {
     }
 }
 
-fn write_http_response(stream: &mut TcpStream, resp: &FinalResponse) -> Result<(), String> {
+fn write_http_response(
+    stream: &mut TcpStream,
+    resp: &FinalResponse,
+    close: bool,
+) -> Result<(), String> {
     let reason = match resp.status {
         200 => "OK",
         301 => "Moved Permanently",
@@ -237,7 +286,9 @@ fn write_http_response(stream: &mut TcpStream, resp: &FinalResponse) -> Result<(
     };
     let mut out = format!("HTTP/1.1 {} {}\r\n", resp.status, reason);
     out.push_str(&format!("Content-Length: {}\r\n", resp.body.len()));
-    out.push_str("Connection: close\r\n");
+    if close {
+        out.push_str("Connection: close\r\n");
+    }
     for (k, v) in &resp.headers {
         out.push_str(k);
         out.push_str(": ");

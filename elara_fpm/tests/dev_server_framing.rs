@@ -38,6 +38,42 @@ fn response_body(buf: &[u8]) -> Vec<u8> {
     }
 }
 
+fn read_one_response(stream: &mut TcpStream) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; 4096];
+    let header_end = loop {
+        if let Some(pos) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+            break pos;
+        }
+        let n = stream.read(&mut tmp).expect("read headers");
+        assert!(n > 0, "eof before response headers");
+        buf.extend_from_slice(&tmp[..n]);
+    };
+    let head = String::from_utf8_lossy(&buf[..header_end]);
+    let mut content_len = None;
+    for line in head.lines() {
+        if let Some(v) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+            content_len = Some(v.trim().parse::<usize>().expect("content-length"));
+        }
+    }
+    let len = content_len.expect("response Content-Length");
+    let body_start = header_end + 4;
+    while buf.len() < body_start + len {
+        let n = stream.read(&mut tmp).expect("read body");
+        assert!(n > 0, "eof before response body");
+        buf.extend_from_slice(&tmp[..n]);
+    }
+    buf.truncate(body_start + len);
+    buf
+}
+
+fn response_has_connection_close(buf: &[u8]) -> bool {
+    String::from_utf8_lossy(buf).lines().any(|l| {
+        l.to_ascii_lowercase().starts_with("connection:")
+            && l.to_ascii_lowercase().contains("close")
+    })
+}
+
 #[test]
 fn post_body_arrives_intact_across_socket_reads() {
     let dir = std::env::temp_dir().join(format!("elara-fpm-frame-{}", std::process::id()));
@@ -141,5 +177,81 @@ fn missing_content_length_means_empty_body() {
     client.read_to_end(&mut buf).unwrap();
     assert_eq!(read_status(&buf), 200);
     assert_eq!(response_body(&buf), b"");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn two_http11_requests_on_one_connection() {
+    let dir = std::env::temp_dir().join(format!("elara-fpm-ka-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("a.ela"),
+        r#"res.write("A-")
+res.write(req.body)"#,
+    )
+    .unwrap();
+    fs::write(
+        dir.join("b.ela"),
+        r#"res.write("B-")
+res.write(req.body)"#,
+    )
+    .unwrap();
+
+    let addr = spawn_one(dir.clone());
+    let mut client = TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(3)))
+        .unwrap();
+
+    let req1 = "POST /a.ela HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n\r\none";
+    let req2 = "POST /b.ela HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\nConnection: close\r\n\r\ntwo";
+    client.write_all(req1.as_bytes()).unwrap();
+    client.write_all(req2.as_bytes()).unwrap();
+
+    let r1 = read_one_response(&mut client);
+    assert_eq!(read_status(&r1), 200);
+    assert_eq!(response_body(&r1), b"A-one");
+    assert!(
+        !response_has_connection_close(&r1),
+        "{}",
+        String::from_utf8_lossy(&r1)
+    );
+
+    let r2 = read_one_response(&mut client);
+    assert_eq!(read_status(&r2), 200);
+    assert_eq!(response_body(&r2), b"B-two");
+    assert!(
+        response_has_connection_close(&r2),
+        "{}",
+        String::from_utf8_lossy(&r2)
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn connection_close_ends_after_one_response() {
+    let dir = std::env::temp_dir().join(format!("elara-fpm-close-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("hi.ela"), r#"res.write("hi")"#).unwrap();
+
+    let addr = spawn_one(dir.clone());
+    let mut client = TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    let req = "GET /hi.ela HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    client.write_all(req.as_bytes()).unwrap();
+    let mut buf = Vec::new();
+    client.read_to_end(&mut buf).unwrap();
+    assert_eq!(read_status(&buf), 200);
+    assert_eq!(response_body(&buf), b"hi");
+    assert!(response_has_connection_close(&buf));
+    // Peer closed: further write/read should fail or return empty.
+    let mut more = [0u8; 8];
+    let n = client.read(&mut more).unwrap_or(0);
+    assert_eq!(n, 0);
     let _ = fs::remove_dir_all(&dir);
 }
