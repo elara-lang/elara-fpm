@@ -42,6 +42,8 @@ pub struct RequestData {
     pub query: String,
     pub headers: BTreeMap<String, String>,
     pub body: String,
+    /// Parsed query string (`req.args`). Last key wins. Does not alter `query`.
+    pub args: BTreeMap<String, String>,
     /// Parsed `application/x-www-form-urlencoded` (and multipart text fields). Last key wins.
     pub form: BTreeMap<String, String>,
     /// Parsed `Cookie` header. Duplicate names: last value wins.
@@ -179,6 +181,7 @@ fn __elara_fpm_run({params}) {{
     query: {query},
     headers: {headers},
     body: __req_body,
+    args: {args},
     form: {form},
     cookies: {cookies},
     json: {json},
@@ -207,6 +210,7 @@ return __elara_fpm_run
         path = elara_string_lit(&request.path),
         query = elara_string_lit(&request.query),
         headers = headers_literal(&request.headers),
+        args = string_map_literal(&request.args),
         form = string_map_literal(&request.form),
         cookies = string_map_literal(&request.cookies),
         json = json_expr,
@@ -257,6 +261,7 @@ pub fn run_script_sandboxed(
     sandbox: &SandboxConfig,
 ) -> Result<(FinalResponse, Option<String>), String> {
     let mut prepared = request.clone();
+    prepared.args = crate::body::parse_urlencoded(&prepared.query);
     if prepared.cookies.is_empty()
         && let Some(raw) = prepared.headers.get("cookie")
     {
