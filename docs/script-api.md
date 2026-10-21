@@ -9,9 +9,10 @@ Scripts receive `req` and `res` (and optionally `session`) for each request.
 | `method` | Uppercased HTTP method |
 | `path` | Request path |
 | `query` | Raw query string (no `?`) |
+| `args` | Parsed query map (percent-decoded; `+` is space; **last key wins**) |
 | `headers` | Lowercased header map |
 | `body` | Raw body string |
-| `form` | Urlencoded / multipart text fields |
+| `form` | Urlencoded / multipart text fields (body only; not merged with `args`) |
 | `cookies` | Parsed `Cookie` header |
 | `json` | Parsed JSON object (or `nil`) |
 | `files` | Multipart uploads (`name`, `filename`, `content_type`, `path`, `size`) |
