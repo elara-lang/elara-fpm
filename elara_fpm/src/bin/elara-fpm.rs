@@ -1,5 +1,6 @@
 use elara_fpm::{
-    DevServerConfig, FastCgiConfig, parse_cli, run_cgi_once, run_dev_server, run_fastcgi_worker,
+    DevServerConfig, FastCgiConfig, parse_cli, run_cgi_once_with, run_dev_server,
+    run_fastcgi_worker,
 };
 use std::process::ExitCode;
 
@@ -9,7 +10,9 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => {
             eprintln!("elara-fpm: {e}");
-            eprintln!("usage: elara-fpm [-S <addr>:<port> | -F <listen>] [-t <docroot>]");
+            eprintln!(
+                "usage: elara-fpm [-S <addr>:<port> | -F <listen>] [-t <docroot>] [--gas N] [--mem N] [--allow-sys-env]"
+            );
             return ExitCode::from(2);
         }
     };
@@ -24,6 +27,7 @@ fn main() -> ExitCode {
         let cfg = FastCgiConfig {
             listen: fcgi,
             docroot: cli.docroot,
+            process: cli.process,
         };
         if let Err(e) = run_fastcgi_worker(&cfg) {
             eprintln!("elara-fpm: {e}");
@@ -35,6 +39,7 @@ fn main() -> ExitCode {
         let cfg = DevServerConfig {
             listen,
             docroot: cli.docroot,
+            process: cli.process,
         };
         if let Err(e) = run_dev_server(cfg) {
             eprintln!("elara-fpm: {e}");
@@ -42,7 +47,6 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    // No -S / -F: CGI mode (ScriptAlias / front-end CGI).
-    let code = run_cgi_once(&cli.docroot);
+    let code = run_cgi_once_with(&cli.docroot, &cli.process);
     ExitCode::from(code as u8)
 }

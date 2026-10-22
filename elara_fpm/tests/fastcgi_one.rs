@@ -41,5 +41,6 @@ fn fastcgi_serves_one_script_fixture() {
     let _ = FastCgiConfig {
         listen: addr.to_string(),
         docroot: dir,
+        process: Default::default(),
     };
 }

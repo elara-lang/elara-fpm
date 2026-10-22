@@ -43,6 +43,7 @@ res.write(req.query)"#,
     let cfg = DevServerConfig {
         listen: "127.0.0.1:0".parse().unwrap(),
         docroot: dir.clone(),
+        process: Default::default(),
     };
     let listener = bind_listener(&cfg).unwrap();
     let addr = listener.local_addr().unwrap();

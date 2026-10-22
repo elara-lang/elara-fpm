@@ -5,18 +5,19 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::body::BodyLimits;
 use crate::helpers::host_error_page;
+use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_with_session};
-use crate::session::SessionConfig;
+use crate::sandbox::ELARA_CAP_SYS_ENV;
+use crate::script_api::{RequestData, run_script_sandboxed};
 
 /// Configuration for the built-in development server.
 #[derive(Debug, Clone)]
 pub struct DevServerConfig {
     pub listen: SocketAddr,
     pub docroot: PathBuf,
+    pub process: ProcessConfig,
 }
 
 /// Parse `addr:port` (e.g. `127.0.0.1:8080`).
@@ -51,7 +52,7 @@ pub fn run_dev_server(cfg: DevServerConfig) -> Result<(), String> {
             Ok(stream) => {
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
                 let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-                if let Err(e) = handle_connection(stream, &cfg.docroot) {
+                if let Err(e) = handle_connection(stream, &cfg.docroot, &cfg.process) {
                     eprintln!("request error: {e}");
                 }
             }
@@ -63,7 +64,16 @@ pub fn run_dev_server(cfg: DevServerConfig) -> Result<(), String> {
 
 /// Handle one client connection for the development server (exported for tests).
 pub fn serve_dev_connection(stream: TcpStream, docroot: &Path) -> Result<(), String> {
-    handle_connection(stream, docroot)
+    serve_dev_connection_with(stream, docroot, &ProcessConfig::default())
+}
+
+/// Like [`serve_dev_connection`] with explicit process configuration.
+pub fn serve_dev_connection_with(
+    stream: TcpStream,
+    docroot: &Path,
+    process: &ProcessConfig,
+) -> Result<(), String> {
+    handle_connection(stream, docroot, process)
 }
 
 enum FrameError {
@@ -78,11 +88,18 @@ struct FramedRequest {
     close: bool,
 }
 
-fn handle_connection(mut stream: TcpStream, docroot: &Path) -> Result<(), String> {
-    let limits = BodyLimits::default();
+fn handle_connection(
+    mut stream: TcpStream,
+    docroot: &Path,
+    process: &ProcessConfig,
+) -> Result<(), String> {
     let mut pending = Vec::new();
     loop {
-        let framed = match read_http_request(&mut stream, &mut pending, limits.max_body_bytes) {
+        let framed = match read_http_request(
+            &mut stream,
+            &mut pending,
+            process.body_limits.max_body_bytes,
+        ) {
             Ok(f) => f,
             Err(FrameError::Eof) => return Ok(()),
             Err(FrameError::PayloadTooLarge) => {
@@ -101,7 +118,7 @@ fn handle_connection(mut stream: TcpStream, docroot: &Path) -> Result<(), String
             }
             Err(FrameError::Bad(e)) => return Err(e),
         };
-        let response = dispatch_request(docroot, &framed.req);
+        let response = dispatch_request_with(docroot, &framed.req, process);
         write_http_response(&mut stream, &response, framed.close)?;
         let _ = stream.flush();
         if framed.close {
@@ -236,18 +253,27 @@ fn read_http_request(
 
 /// Dispatch one request against the document root (script or static).
 pub fn dispatch_request(docroot: &Path, req: &RequestData) -> FinalResponse {
+    dispatch_request_with(docroot, req, &ProcessConfig::default())
+}
+
+/// Like [`dispatch_request`] with explicit process configuration.
+pub fn dispatch_request_with(
+    docroot: &Path,
+    req: &RequestData,
+    process: &ProcessConfig,
+) -> FinalResponse {
     match resolve_route(docroot, &req.path) {
         Route::Error(e) => e,
         Route::Static { path, content_type } => serve_static(&path, &content_type),
         Route::Script(path) => match load_script_source(&path) {
             Err(e) => e,
             Ok(source) => {
-                let session_cfg = SessionConfig::default();
-                match run_script_with_session(
+                match run_script_sandboxed(
                     req,
                     &source,
-                    &BodyLimits::default(),
-                    Some(&session_cfg),
+                    &process.body_limits,
+                    Some(&process.session),
+                    &process.sandbox,
                 ) {
                     Ok((resp, err)) => {
                         if err.is_some() {
@@ -314,12 +340,14 @@ pub struct CliArgs {
     pub listen: Option<SocketAddr>,
     pub fastcgi: Option<String>,
     pub docroot: PathBuf,
+    pub process: ProcessConfig,
 }
 
 pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
     let mut listen = None;
     let mut fastcgi = None;
     let mut docroot = std::env::current_dir().map_err(|e| e.to_string())?;
+    let mut process = ProcessConfig::default();
     let mut i = 1usize; // skip argv[0]
     while i < args.len() {
         match args[i].as_str() {
@@ -340,6 +368,31 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
                 let dir = args.get(i).ok_or("-t requires a directory")?;
                 docroot = PathBuf::from(dir);
             }
+            "--gas" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--gas requires a positive integer")?;
+                let n: u64 = raw
+                    .parse()
+                    .map_err(|_| format!("invalid --gas value: {raw}"))?;
+                if n < 1 {
+                    return Err("--gas must be >= 1".into());
+                }
+                process.sandbox.gas_limit = n;
+            }
+            "--mem" => {
+                i += 1;
+                let raw = args.get(i).ok_or("--mem requires a positive integer")?;
+                let n: usize = raw
+                    .parse()
+                    .map_err(|_| format!("invalid --mem value: {raw}"))?;
+                if n < 1 {
+                    return Err("--mem must be >= 1".into());
+                }
+                process.sandbox.mem_limit_bytes = n;
+            }
+            "--allow-sys-env" => {
+                process.sandbox.capabilities |= ELARA_CAP_SYS_ENV;
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
         i += 1;
@@ -351,5 +404,6 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
         listen,
         fastcgi,
         docroot,
+        process,
     })
 }

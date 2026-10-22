@@ -4,12 +4,11 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::body::BodyLimits;
 use crate::helpers::host_error_page;
+use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_with_session};
-use crate::session::SessionConfig;
+use crate::script_api::{RequestData, run_script_sandboxed};
 
 /// Build [`RequestData`] from a CGI-style environment map and stdin body bytes.
 pub fn request_from_cgi_env(env: &BTreeMap<String, String>, stdin_body: &[u8]) -> RequestData {
@@ -95,6 +94,16 @@ pub fn handle_cgi_request(
     env: &BTreeMap<String, String>,
     stdin_body: &[u8],
 ) -> FinalResponse {
+    handle_cgi_request_with(docroot, env, stdin_body, &ProcessConfig::default())
+}
+
+/// Like [`handle_cgi_request`] with process configuration.
+pub fn handle_cgi_request_with(
+    docroot: &Path,
+    env: &BTreeMap<String, String>,
+    stdin_body: &[u8],
+    process: &ProcessConfig,
+) -> FinalResponse {
     let req = request_from_cgi_env(env, stdin_body);
     // Prefer SCRIPT_FILENAME when present and under docroot.
     if let Some(sf) = env.get("SCRIPT_FILENAME") {
@@ -105,23 +114,27 @@ pub fn handle_cgi_request(
         ) && canon.starts_with(&root)
             && canon.is_file()
         {
-            return run_script_file(&canon, &req);
+            return run_script_file(&canon, &req, process);
         }
     }
     match resolve_route(docroot, &req.path) {
         Route::Error(e) => e,
         Route::Static { path, content_type } => serve_static(&path, &content_type),
-        Route::Script(path) => run_script_file(&path, &req),
+        Route::Script(path) => run_script_file(&path, &req, process),
     }
 }
 
-fn run_script_file(path: &Path, req: &RequestData) -> FinalResponse {
+fn run_script_file(path: &Path, req: &RequestData, process: &ProcessConfig) -> FinalResponse {
     match load_script_source(path) {
         Err(e) => e,
         Ok(source) => {
-            let session_cfg = SessionConfig::default();
-            match run_script_with_session(req, &source, &BodyLimits::default(), Some(&session_cfg))
-            {
+            match run_script_sandboxed(
+                req,
+                &source,
+                &process.body_limits,
+                Some(&process.session),
+                &process.sandbox,
+            ) {
                 Ok((resp, _)) => resp,
                 Err(_) => host_error_page(500, "Internal Server Error"),
             }
@@ -164,9 +177,14 @@ pub fn cgi_env_from_os() -> BTreeMap<String, String> {
 
 /// Run one CGI request using OS env + stdin → stdout. Returns process exit code.
 pub fn run_cgi_once(docroot: &Path) -> i32 {
+    run_cgi_once_with(docroot, &ProcessConfig::default())
+}
+
+/// Like [`run_cgi_once`] with process configuration.
+pub fn run_cgi_once_with(docroot: &Path, process: &ProcessConfig) -> i32 {
     let env = cgi_env_from_os();
     let body = read_cgi_stdin(&env, &mut std::io::stdin());
-    let resp = handle_cgi_request(docroot, &env, &body);
+    let resp = handle_cgi_request_with(docroot, &env, &body, process);
     match write_cgi_stdout(&mut std::io::stdout(), &resp) {
         Ok(()) => 0,
         Err(_) => 1,

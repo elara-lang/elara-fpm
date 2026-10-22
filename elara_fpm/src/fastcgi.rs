@@ -8,7 +8,8 @@ use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
-use crate::cgi::{format_cgi_response, handle_cgi_request};
+use crate::cgi::{format_cgi_response, handle_cgi_request_with};
+use crate::process::ProcessConfig;
 
 const FCGI_BEGIN_REQUEST: u8 = 1;
 const FCGI_ABORT_REQUEST: u8 = 2;
@@ -22,6 +23,7 @@ const FCGI_STDERR: u8 = 7;
 pub struct FastCgiConfig {
     pub listen: String,
     pub docroot: PathBuf,
+    pub process: ProcessConfig,
 }
 
 /// Serve FastCGI requests sequentially until the listener fails.
@@ -44,7 +46,9 @@ fn run_fastcgi_tcp(cfg: &FastCgiConfig) -> Result<(), String> {
     for conn in listener.incoming() {
         match conn {
             Ok(mut stream) => {
-                if let Err(e) = handle_fastcgi_connection(&mut stream, &cfg.docroot) {
+                if let Err(e) =
+                    handle_fastcgi_connection_with(&mut stream, &cfg.docroot, &cfg.process)
+                {
                     eprintln!("fastcgi connection error: {e}");
                 }
             }
@@ -79,7 +83,9 @@ fn run_fastcgi_unix(cfg: &FastCgiConfig) -> Result<(), String> {
     for conn in listener.incoming() {
         match conn {
             Ok(mut stream) => {
-                if let Err(e) = handle_fastcgi_connection(&mut stream, &cfg.docroot) {
+                if let Err(e) =
+                    handle_fastcgi_connection_with(&mut stream, &cfg.docroot, &cfg.process)
+                {
                     eprintln!("fastcgi connection error: {e}");
                 }
             }
@@ -93,6 +99,15 @@ fn run_fastcgi_unix(cfg: &FastCgiConfig) -> Result<(), String> {
 pub fn handle_fastcgi_connection(
     stream: &mut (impl Read + Write),
     docroot: &Path,
+) -> Result<(), String> {
+    handle_fastcgi_connection_with(stream, docroot, &ProcessConfig::default())
+}
+
+/// Like [`handle_fastcgi_connection`] with process configuration.
+pub fn handle_fastcgi_connection_with(
+    stream: &mut (impl Read + Write),
+    docroot: &Path,
+    process: &ProcessConfig,
 ) -> Result<(), String> {
     let mut params = BTreeMap::new();
     let mut stdin = Vec::new();
@@ -116,7 +131,7 @@ pub fn handle_fastcgi_connection(
             _ => {}
         }
     }
-    let resp = handle_cgi_request(docroot, &params, &stdin);
+    let resp = handle_cgi_request_with(docroot, &params, &stdin, process);
     let payload = format_cgi_response(&resp);
     write_stream_records(stream, FCGI_STDOUT, request_id, &payload)?;
     write_record(stream, FCGI_STDOUT, request_id, &[])?; // end stdout

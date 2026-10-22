@@ -13,6 +13,7 @@ fn spawn_server(
     let cfg = DevServerConfig {
         listen: "127.0.0.1:0".parse().unwrap(),
         docroot: docroot.clone(),
+        process: Default::default(),
     };
     let listener = bind_listener(&cfg).expect("bind");
     let addr = listener.local_addr().unwrap();

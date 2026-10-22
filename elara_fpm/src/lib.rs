@@ -7,6 +7,7 @@ pub mod fastcgi;
 pub mod ffi;
 pub mod helpers;
 pub mod multipart;
+pub mod process;
 pub mod response;
 pub mod routing;
 pub mod sandbox;
@@ -18,15 +19,16 @@ use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open
 
 pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use cgi::{
-    cgi_env_from_os, format_cgi_response, handle_cgi_request, read_cgi_stdin, request_from_cgi_env,
-    run_cgi_once, write_cgi_stdout,
+    cgi_env_from_os, format_cgi_response, handle_cgi_request, handle_cgi_request_with,
+    read_cgi_stdin, request_from_cgi_env, run_cgi_once, run_cgi_once_with, write_cgi_stdout,
 };
 pub use cookies::{CookieOptions, parse_cookie_header};
 pub use fastcgi::{
     FastCgiConfig, encode_test_request, extract_stdout, handle_fastcgi_connection,
-    run_fastcgi_worker,
+    handle_fastcgi_connection_with, run_fastcgi_worker,
 };
 pub use helpers::{host_error_page, html_escape};
+pub use process::ProcessConfig;
 pub use response::{FinalResponse, ResponseBuffer};
 pub use routing::{
     Route, content_type_for, load_script_source, resolve_route, resolve_under_root, serve_static,
@@ -40,8 +42,9 @@ pub use script_api::{
     run_script_with_limits, run_script_with_session, smoke_inject_req_res,
 };
 pub use server::{
-    CliArgs, DevServerConfig, bind_listener, dispatch_request, parse_cli, parse_listen_addr,
-    print_listen_banner, run_dev_server, serve_dev_connection,
+    CliArgs, DevServerConfig, bind_listener, dispatch_request, dispatch_request_with, parse_cli,
+    parse_listen_addr, print_listen_banner, run_dev_server, serve_dev_connection,
+    serve_dev_connection_with,
 };
 pub use session::{FileSessionStore, Session, SessionConfig, default_session_store_dir};
 

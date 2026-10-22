@@ -21,6 +21,7 @@ fn bind_success_and_failure() {
     let cfg = DevServerConfig {
         listen: addr,
         docroot: std::env::temp_dir(),
+        process: Default::default(),
     };
     let listener = bind_listener(&cfg).expect("bind ephemeral");
     let actual = listener.local_addr().unwrap();
@@ -31,6 +32,7 @@ fn bind_success_and_failure() {
     let bad = DevServerConfig {
         listen: "127.0.0.1:1".parse().unwrap(),
         docroot: std::env::temp_dir(),
+        process: Default::default(),
     };
     let err = bind_listener(&bad);
     if std::env::var_os("ELARA_FPM_ALLOW_PRIV_BIND").is_none() {
