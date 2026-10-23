@@ -393,6 +393,38 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
             "--allow-sys-env" => {
                 process.sandbox.capabilities |= ELARA_CAP_SYS_ENV;
             }
+            "--max-body" => {
+                i += 1;
+                let raw = args
+                    .get(i)
+                    .ok_or("--max-body requires a non-negative integer")?;
+                let n: usize = raw
+                    .parse()
+                    .map_err(|_| format!("invalid --max-body value: {raw}"))?;
+                process.body_limits.max_body_bytes = n;
+            }
+            "--session-dir" => {
+                i += 1;
+                let dir = args.get(i).ok_or("--session-dir requires a path")?;
+                process.session.store_dir = PathBuf::from(dir);
+            }
+            "--session-secure" => {
+                process.session.secure = true;
+            }
+            "--session-samesite" => {
+                i += 1;
+                let raw = args
+                    .get(i)
+                    .ok_or("--session-samesite requires Lax|Strict|None")?;
+                match raw.as_str() {
+                    "Lax" | "Strict" | "None" => process.session.same_site = raw.clone(),
+                    _ => {
+                        return Err(format!(
+                            "invalid --session-samesite value: {raw} (expected Lax, Strict, or None)"
+                        ));
+                    }
+                }
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
         i += 1;
