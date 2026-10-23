@@ -27,6 +27,20 @@ Sample nginx snippet: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
 
 All script and static paths are resolved under the configured document root. Escape attempts (`..`, absolute paths) fail.
 
+## Operator flags
+
+These apply to `-S`, CGI, and `-F` for the whole process. Scripts cannot change them.
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--gas <n>` | `10000000` | Per-request gas limit (≥ 1) |
+| `--mem <bytes>` | `33554432` | Per-request memory limit (≥ 1) |
+| `--max-body <bytes>` | `1048576` | Maximum request body size (≥ 0) |
+| `--session-dir <path>` | `$TMPDIR/elara/.sessions` | Session file-store directory |
+| `--session-secure` | off | Set `Secure` on the session cookie |
+| `--session-samesite <Lax\|Strict\|None>` | `Lax` | Session cookie `SameSite` |
+| `--allow-sys-env` | off | Grant `ELARA_CAP_SYS_ENV` |
+
 ## Sandbox defaults
 
 | Knob | Default |
