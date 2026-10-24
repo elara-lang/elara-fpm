@@ -46,12 +46,31 @@ pub fn request_from_cgi_env(env: &BTreeMap<String, String>, stdin_body: &[u8]) -
         None => String::from_utf8_lossy(stdin_body).into_owned(),
     };
 
+    let host = env
+        .get("HTTP_HOST")
+        .cloned()
+        .or_else(|| env.get("SERVER_NAME").cloned())
+        .unwrap_or_default();
+    let scheme = {
+        let rs = env.get("REQUEST_SCHEME").map(|s| s.as_str()).unwrap_or("");
+        let https = env.get("HTTPS").map(|s| s.as_str()).unwrap_or("");
+        if rs.eq_ignore_ascii_case("https") || https.eq_ignore_ascii_case("on") || https == "1" {
+            "https".into()
+        } else {
+            "http".into()
+        }
+    };
+    let remote = env.get("REMOTE_ADDR").cloned().unwrap_or_default();
+
     RequestData {
         method,
         path,
         query,
         headers,
         body,
+        host,
+        scheme,
+        remote,
         ..RequestData::default()
     }
 }

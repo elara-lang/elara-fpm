@@ -42,6 +42,12 @@ pub struct RequestData {
     pub query: String,
     pub headers: BTreeMap<String, String>,
     pub body: String,
+    /// Host for this request (`Host` / `HTTP_HOST` / `SERVER_NAME`).
+    pub host: String,
+    /// `http` or `https` for this request.
+    pub scheme: String,
+    /// Client address without port.
+    pub remote: String,
     /// Parsed query string (`req.args`). Last key wins. Does not alter `query`.
     pub args: BTreeMap<String, String>,
     /// Parsed `application/x-www-form-urlencoded` (and multipart text fields). Last key wins.
@@ -181,6 +187,9 @@ fn __elara_fpm_run({params}) {{
     query: {query},
     headers: {headers},
     body: __req_body,
+    host: {host},
+    scheme: {scheme},
+    remote: {remote},
     args: {args},
     form: {form},
     cookies: {cookies},
@@ -210,6 +219,9 @@ return __elara_fpm_run
         path = elara_string_lit(&request.path),
         query = elara_string_lit(&request.query),
         headers = headers_literal(&request.headers),
+        host = elara_string_lit(&request.host),
+        scheme = elara_string_lit(&request.scheme),
+        remote = elara_string_lit(&request.remote),
         args = string_map_literal(&request.args),
         form = string_map_literal(&request.form),
         cookies = string_map_literal(&request.cookies),

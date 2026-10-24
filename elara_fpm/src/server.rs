@@ -118,6 +118,20 @@ fn handle_connection(
             }
             Err(FrameError::Bad(e)) => return Err(e),
         };
+        let mut framed = framed;
+        if framed.req.host.is_empty()
+            && let Some(h) = framed.req.headers.get("host")
+        {
+            framed.req.host = h.clone();
+        }
+        if framed.req.scheme.is_empty() {
+            framed.req.scheme = "http".into();
+        }
+        if framed.req.remote.is_empty()
+            && let Ok(peer) = stream.peer_addr()
+        {
+            framed.req.remote = peer.ip().to_string();
+        }
         let response = dispatch_request_with(docroot, &framed.req, process);
         write_http_response(&mut stream, &response, framed.close)?;
         let _ = stream.flush();
