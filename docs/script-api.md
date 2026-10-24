@@ -12,10 +12,15 @@ Scripts receive `req` and `res` (and optionally `session`) for each request.
 | `args` | Parsed query map (percent-decoded; `+` is space; **last key wins**) |
 | `headers` | Lowercased header map |
 | `body` | Raw body string |
+| `host` | Request host (`Host` / `HTTP_HOST` / `SERVER_NAME`); may include `:port`; empty when absent |
+| `scheme` | `http` or `https` (`-S` is always `http`) |
+| `remote` | Client address without port (peer / `REMOTE_ADDR`); empty when absent |
 | `form` | Urlencoded / multipart text fields (body only; not merged with `args`) |
 | `cookies` | Parsed `Cookie` header |
 | `json` | Parsed JSON object (or `nil`) |
 | `files` | Multipart uploads (`name`, `filename`, `content_type`, `path`, `size`) |
+
+The host does **not** trust `X-Forwarded-Proto` or `X-Forwarded-For` for `scheme` / `remote`. Put TLS and trusted client identity on the front-end proxy.
 
 ## `res`
 
