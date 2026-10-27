@@ -119,6 +119,13 @@ pub fn resolve_route(docroot: &Path, url_path: &str) -> Route {
                 return Route::Script(idx);
             }
         }
+        let html = path.join("index.html");
+        if html.is_file() {
+            return Route::Static {
+                content_type: content_type_for(&html).to_string(),
+                path: html,
+            };
+        }
         return Route::Error(host_error_page(404, "Not Found"));
     }
 
