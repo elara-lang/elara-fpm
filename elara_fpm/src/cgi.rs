@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use crate::helpers::host_error_page;
+use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
@@ -125,7 +125,7 @@ pub fn handle_cgi_request_with(
 ) -> FinalResponse {
     let req = request_from_cgi_env(env, stdin_body);
     // Prefer SCRIPT_FILENAME when present and under docroot.
-    if let Some(sf) = env.get("SCRIPT_FILENAME") {
+    let resp = if let Some(sf) = env.get("SCRIPT_FILENAME") {
         let sf_path = std::path::Path::new(sf);
         if let (Ok(root), Ok(canon)) = (
             std::fs::canonicalize(docroot),
@@ -133,14 +133,22 @@ pub fn handle_cgi_request_with(
         ) && canon.starts_with(&root)
             && canon.is_file()
         {
-            return run_script_file(&canon, &req, process);
+            run_script_file(&canon, &req, process)
+        } else {
+            match resolve_route(docroot, &req.path) {
+                Route::Error(e) => e,
+                Route::Static { path, content_type } => serve_static(&path, &content_type),
+                Route::Script(path) => run_script_file(&path, &req, process),
+            }
         }
-    }
-    match resolve_route(docroot, &req.path) {
-        Route::Error(e) => e,
-        Route::Static { path, content_type } => serve_static(&path, &content_type),
-        Route::Script(path) => run_script_file(&path, &req, process),
-    }
+    } else {
+        match resolve_route(docroot, &req.path) {
+            Route::Error(e) => e,
+            Route::Static { path, content_type } => serve_static(&path, &content_type),
+            Route::Script(path) => run_script_file(&path, &req, process),
+        }
+    };
+    apply_head_method(&req.method, resp)
 }
 
 fn run_script_file(path: &Path, req: &RequestData, process: &ProcessConfig) -> FinalResponse {

@@ -5,7 +5,7 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::helpers::host_error_page;
+use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, load_script_source, resolve_route, serve_static};
@@ -276,7 +276,7 @@ pub fn dispatch_request_with(
     req: &RequestData,
     process: &ProcessConfig,
 ) -> FinalResponse {
-    match resolve_route(docroot, &req.path) {
+    let resp = match resolve_route(docroot, &req.path) {
         Route::Error(e) => e,
         Route::Static { path, content_type } => serve_static(&path, &content_type),
         Route::Script(path) => match load_script_source(&path) {
@@ -304,7 +304,8 @@ pub fn dispatch_request_with(
                 }
             }
         },
-    }
+    };
+    apply_head_method(&req.method, resp)
 }
 
 fn write_http_response(
@@ -325,11 +326,20 @@ fn write_http_response(
         _ => "OK",
     };
     let mut out = format!("HTTP/1.1 {} {}\r\n", resp.status, reason);
-    out.push_str(&format!("Content-Length: {}\r\n", resp.body.len()));
+    let content_length = resp
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
+        .map(|(_, v)| v.clone())
+        .unwrap_or_else(|| resp.body.len().to_string());
+    out.push_str(&format!("Content-Length: {content_length}\r\n"));
     if close {
         out.push_str("Connection: close\r\n");
     }
     for (k, v) in &resp.headers {
+        if k.eq_ignore_ascii_case("content-length") {
+            continue;
+        }
         out.push_str(k);
         out.push_str(": ");
         out.push_str(v);

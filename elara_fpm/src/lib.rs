@@ -27,7 +27,7 @@ pub use fastcgi::{
     FastCgiConfig, encode_test_request, extract_stdout, handle_fastcgi_connection,
     handle_fastcgi_connection_with, run_fastcgi_worker,
 };
-pub use helpers::{host_error_page, html_escape};
+pub use helpers::{apply_head_method, host_error_page, html_escape};
 pub use process::ProcessConfig;
 pub use response::{FinalResponse, ResponseBuffer};
 pub use routing::{

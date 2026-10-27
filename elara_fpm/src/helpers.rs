@@ -47,6 +47,17 @@ pub unsafe extern "C" fn native_html_escape(
     }
 }
 
+/// For `HEAD`, keep status/headers, set `Content-Length` to the would-be body size, clear body.
+pub fn apply_head_method(method: &str, mut resp: FinalResponse) -> FinalResponse {
+    if method.eq_ignore_ascii_case("HEAD") {
+        let len = resp.body.len();
+        resp.headers
+            .insert("Content-Length".into(), len.to_string());
+        resp.body.clear();
+    }
+    resp
+}
+
 /// Built-in plain-text status page (no internal paths).
 pub fn host_error_page(status: u16, message: &str) -> FinalResponse {
     let mut headers = std::collections::BTreeMap::new();
