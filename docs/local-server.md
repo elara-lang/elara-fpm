@@ -29,6 +29,7 @@ On start, the process prints the listen URL and document root to **stderr**.
 - Intended for local development, not public production
 - Each request gets a fresh sandboxed VM state
 - `.ela` scripts run; other files under the docroot are served as static content
+- Directory URLs pick the first existing index: `index.ela` (run), then `index.elac` (run when supported), then `index.html` (static). Otherwise `404`. No directory listings.
 - Paths cannot escape the document root (`..` is rejected)
 
 ## Demos
