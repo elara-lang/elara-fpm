@@ -19,6 +19,10 @@ Ao iniciar, o processo imprime a URL e o document root em **stderr**.
 - `Transfer-Encoding: chunked` não é implementado; o servidor responde `501` e fecha.
 - Keep-alive HTTP/1.1: se o cliente omite `Connection: close`, a conexão permanece aberta para o próximo request. Bytes restantes após um request iniciam o seguinte. HTTP/1.0 ou `Connection: close` encerra após a resposta.
 
+## HEAD
+
+`HEAD` é tratado como `GET`: a mesma rota roda (script ou estático), e a resposta mantém o mesmo status e headers. O host define `Content-Length` com o tamanho em bytes do body que um `GET` teria enviado e envia o body vazio. Scripts ainda executam, então sessão e outros efeitos colaterais batem com `GET`.
+
 ## Limites
 
 - Só texto claro — sem TLS, sem HTTP/2
