@@ -83,6 +83,41 @@ fn head_missing_path_matches_get_status() {
 }
 
 #[test]
+fn head_script_strips_body_keeps_length_and_get_returns_body() {
+    let dir = std::env::temp_dir().join(format!("elara-fpm-head-scr-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("hi.ela"), r#"res.write("hello-head")"#).unwrap();
+
+    let get = dispatch_request(
+        &dir,
+        &elara_fpm::RequestData {
+            method: "GET".into(),
+            path: "/hi.ela".into(),
+            ..elara_fpm::RequestData::default()
+        },
+    );
+    assert_eq!(get.status, 200);
+    assert_eq!(get.body, b"hello-head");
+
+    let head = dispatch_request(
+        &dir,
+        &elara_fpm::RequestData {
+            method: "HEAD".into(),
+            path: "/hi.ela".into(),
+            ..elara_fpm::RequestData::default()
+        },
+    );
+    assert_eq!(head.status, 200);
+    assert!(head.body.is_empty());
+    assert_eq!(
+        head.headers.get("Content-Length").map(String::as_str),
+        Some(get.body.len().to_string().as_str())
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn head_over_wire_has_zero_body_bytes() {
     let dir = std::env::temp_dir().join(format!("elara-fpm-head-wire-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
