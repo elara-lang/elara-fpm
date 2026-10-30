@@ -30,8 +30,8 @@ use crate::response::{
 };
 use crate::sandbox::{SandboxConfig, open_request_state};
 use crate::session::{
-    FileSessionStore, Session, SessionConfig, native_session_destroy, native_session_get,
-    native_session_set, session_set_cookie_line, session_userdata_ptr,
+    FileSessionStore, Session, SessionConfig, native_session_commit, native_session_destroy,
+    native_session_reject, session_data_literal, session_set_cookie_line, session_userdata_ptr,
 };
 
 /// Inbound request fields exposed on `req`.
@@ -152,33 +152,58 @@ fn files_literal(files: &[UploadedFile]) -> String {
     src
 }
 
-pub(crate) fn wrap_script(request: &RequestData, source: &str, with_session: bool) -> String {
+pub(crate) fn wrap_script(
+    request: &RequestData,
+    source: &str,
+    session: Option<&Session>,
+) -> Result<String, String> {
     let json_expr = if request.json_elara.is_empty() {
         "nil".to_string()
     } else {
         request.json_elara.clone()
     };
-    let session_block = if with_session {
-        // Bind natives directly — wrapper fns that `return` a native result were
-        // runtime-erroring under Elara when stored on a table field.
-        r#"
-  let session = {
-    get: __session_get,
-    set: __session_set,
-    destroy: __session_destroy,
-  }
+    let session_block = if let Some(sess) = session {
+        let data_lit = session_data_literal(&sess.data)?;
+        let helpers = include_str!("session_elara.inc.ela");
+        format!(
+            r#"
+{helpers}
+  let session_data = {data_lit}
+  let session = {{
+    get: fn(k) {{
+      return session_data[k]
+    }},
+    set: fn(k, v) {{
+      let j = __fpm_sess_enc(v, 0)
+      if j == nil {{
+        __session_reject()
+      }}
+      session_data[k] = v
+    }},
+    destroy: fn() {{
+      session_data = {{}}
+      __session_destroy()
+    }},
+  }}
+  defer {{
+    let blob = __fpm_sess_enc_map(session_data)
+    if blob != nil {{
+      __session_commit(blob)
+    }}
+  }}
 "#
+        )
     } else {
-        ""
+        String::new()
     };
-    let params = if with_session {
-        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __html_escape, __session_get, __session_set, __session_destroy, __req_body"
+    let params = if session.is_some() {
+        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __html_escape, __session_commit, __session_destroy, __session_reject, __req_body"
     } else {
         "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __html_escape, __req_body"
     };
     // Body is passed as a call argument (`__req_body`) because Elara double-quoted
     // strings interpolate `{…}` and cannot safely embed raw JSON text.
-    format!(
+    Ok(format!(
         r#"
 fn __elara_fpm_run({params}) {{
   let req = {{
@@ -228,7 +253,7 @@ return __elara_fpm_run
         json = json_expr,
         files = files_literal(&request.files),
         source = source,
-    )
+    ))
 }
 
 /// Run `source` with `req` / `res` bound; returns the finalized response and optional script error.
@@ -340,8 +365,7 @@ pub fn run_script_on(
     bindings: &mut ScriptBindings,
     source: &str,
 ) -> Result<(), String> {
-    let with_session = bindings.session.is_some();
-    let wrapped = wrap_script(request, source, with_session);
+    let wrapped = wrap_script(request, source, bindings.session.as_ref())?;
     let callable = eval(state, "elara_fpm_wrap", &wrapped)?;
     let ud = userdata_ptr(&mut bindings.response);
     unsafe {
@@ -350,8 +374,7 @@ pub fn run_script_on(
             request.body.as_ptr() as *const std::os::raw::c_char,
             request.body.len(),
         );
-        if with_session {
-            let sess = bindings.session.as_mut().unwrap();
+        if let Some(sess) = bindings.session.as_mut() {
             let sud = session_userdata_ptr(sess);
             let args: [elara_Value; 10] = [
                 elara_val_native_fn(state, Some(native_res_set_status), ud),
@@ -360,9 +383,9 @@ pub fn run_script_on(
                 elara_val_native_fn(state, Some(native_res_cookie), ud),
                 elara_val_native_fn(state, Some(native_res_redirect), ud),
                 elara_val_native_fn(state, Some(native_html_escape), std::ptr::null_mut()),
-                elara_val_native_fn(state, Some(native_session_get), sud),
-                elara_val_native_fn(state, Some(native_session_set), sud),
+                elara_val_native_fn(state, Some(native_session_commit), sud),
                 elara_val_native_fn(state, Some(native_session_destroy), sud),
+                elara_val_native_fn(state, Some(native_session_reject), sud),
                 body_val,
             ];
             let mut results = [elara_val_nil()];

@@ -1,0 +1,115 @@
+fn __fpm_sess_enc(v, d) {
+  if d > 8 { return nil }
+  let t = type(v)
+  if t == "nil" { return "null" }
+  if t == "boolean" {
+    if v { return "true" } else { return "false" }
+  }
+  if t == "int" {
+    let s = tostring(v)
+    return s
+  }
+  if t == "float" { return nil }
+  if t == "string" {
+    let q = string.char(34)
+    let bs = string.char(92)
+    let out = q
+    let i = 0
+    let n = string.len(v)
+    while i < n {
+      let c = string.byte(v, i)
+      if c == 34 or c == 92 {
+        let ch = string.char(c)
+        out = "{out}{bs}{ch}"
+      } else if c == 10 {
+        out = "{out}{bs}n"
+      } else if c == 13 {
+        out = "{out}{bs}r"
+      } else if c == 9 {
+        out = "{out}{bs}t"
+      } else {
+        let ch = string.char(c)
+        out = "{out}{ch}"
+      }
+      i += 1
+    }
+    return "{out}{q}"
+  }
+  if t == "table" {
+    let ks = table.keys(v)
+    let n = #ks
+    let lb = string.char(123)
+    let rb = string.char(125)
+    if n == 0 {
+      return "{lb}{rb}"
+    }
+    let all_int = true
+    let i = 0
+    while i < n {
+      if type(ks[i]) != "int" {
+        all_int = false
+        break
+      }
+      i += 1
+    }
+    let len = #v
+    if all_int {
+      if n == len {
+        let out = "["
+        i = 0
+        while i < n {
+          let part = __fpm_sess_enc(v[i], d + 1)
+          if part == nil { return nil }
+          if i > 0 { out = "{out}," }
+          out = "{out}{part}"
+          i += 1
+        }
+        return "{out}]"
+      }
+    }
+    let all_str = true
+    i = 0
+    while i < n {
+      if type(ks[i]) != "string" {
+        all_str = false
+        break
+      }
+      i += 1
+    }
+    if not all_str { return nil }
+    let out = lb
+    i = 0
+    while i < n {
+      let k = ks[i]
+      let part = __fpm_sess_enc(v[k], d + 1)
+      if part == nil { return nil }
+      let ksj = __fpm_sess_enc(k, d + 1)
+      if ksj == nil { return nil }
+      if i > 0 { out = "{out}," }
+      out = "{out}{ksj}:{part}"
+      i += 1
+    }
+    return "{out}{rb}"
+  }
+  return nil
+}
+fn __fpm_sess_enc_map(m) {
+  let ks = table.keys(m)
+  let n = #ks
+  let lb = string.char(123)
+  let rb = string.char(125)
+  let out = lb
+  let i = 0
+  while i < n {
+    let k = ks[i]
+    if type(k) != "string" { return nil }
+    let part = __fpm_sess_enc(m[k], 0)
+    if part == nil { return nil }
+    let ksj = __fpm_sess_enc(k, 0)
+    if ksj == nil { return nil }
+    if i > 0 { out = "{out}," }
+    out = "{out}{ksj}:{part}"
+    i += 1
+  }
+  return "{out}{rb}"
+}

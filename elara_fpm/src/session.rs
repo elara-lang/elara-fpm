@@ -1,4 +1,4 @@
-//! File-backed session store (MVP).
+//! File-backed session store.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::cookies::CookieOptions;
 use crate::ffi::{
     elara_CallContext, elara_State, elara_Status, elara_arg, elara_argc, elara_context_userdata,
-    elara_is_nil, elara_return, elara_val_nil, elara_val_string, value_as_string,
+    elara_return, elara_val_nil, value_as_string,
 };
 
 /// Operator configuration for sessions.
@@ -46,10 +46,11 @@ impl Default for SessionConfig {
 }
 
 /// In-memory session for one request.
+///
+/// Values are stored as compact JSON text (null / bool / int / string / array / object).
 #[derive(Debug, Clone)]
 pub struct Session {
     pub id: String,
-    /// MVP: string values only (JSON-serializable subset).
     pub data: BTreeMap<String, String>,
     pub is_new: bool,
     pub destroyed: bool,
@@ -147,7 +148,7 @@ fn is_safe_session_id(id: &str) -> bool {
 }
 
 fn encode_session_file(data: &BTreeMap<String, String>) -> String {
-    let mut out = String::from("v1\n");
+    let mut out = String::from("v2\n");
     for (k, v) in data {
         out.push_str(&percent_encode(k));
         out.push('=');
@@ -160,19 +161,33 @@ fn encode_session_file(data: &BTreeMap<String, String>) -> String {
 fn decode_session_file(raw: &str) -> Option<BTreeMap<String, String>> {
     let mut lines = raw.lines();
     let ver = lines.next()?.trim();
-    if ver != "v1" {
-        return None;
-    }
     let mut data = BTreeMap::new();
-    for line in lines {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
+    match ver {
+        "v2" => {
+            for line in lines {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let (k, v) = line.split_once('=')?;
+                data.insert(percent_decode(k), percent_decode(v));
+            }
+            Some(data)
         }
-        let (k, v) = line.split_once('=')?;
-        data.insert(percent_decode(k), percent_decode(v));
+        "v1" => {
+            for line in lines {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let (k, v) = line.split_once('=')?;
+                let plain = percent_decode(v);
+                data.insert(percent_decode(k), json_quote(&plain));
+            }
+            Some(data)
+        }
+        _ => None,
     }
-    Some(data)
 }
 
 fn percent_encode(s: &str) -> String {
@@ -217,6 +232,217 @@ fn from_hex(b: u8) -> Option<u8> {
     }
 }
 
+fn json_quote(s: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in s.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Parse a JSON object into key → raw JSON value text.
+pub fn json_object_to_raw_map(input: &str) -> Result<BTreeMap<String, String>, String> {
+    let bytes = input.as_bytes();
+    let mut i = 0usize;
+    fn skip_ws(bytes: &[u8], i: &mut usize) {
+        while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
+    }
+    skip_ws(bytes, &mut i);
+    if i >= bytes.len() || bytes[i] != b'{' {
+        return Err("expected JSON object".into());
+    }
+    i += 1;
+    let mut out = BTreeMap::new();
+    loop {
+        skip_ws(bytes, &mut i);
+        if i < bytes.len() && bytes[i] == b'}' {
+            break;
+        }
+        if i >= bytes.len() || bytes[i] != b'"' {
+            return Err("expected string key".into());
+        }
+        let key = parse_json_string(bytes, &mut i)?;
+        skip_ws(bytes, &mut i);
+        if i >= bytes.len() || bytes[i] != b':' {
+            return Err("expected :".into());
+        }
+        i += 1;
+        skip_ws(bytes, &mut i);
+        let start = i;
+        skip_json_value(bytes, &mut i)?;
+        let raw = std::str::from_utf8(&bytes[start..i])
+            .map_err(|_| "invalid utf8 in json value")?
+            .to_string();
+        out.insert(key, raw);
+        skip_ws(bytes, &mut i);
+        if i < bytes.len() && bytes[i] == b',' {
+            i += 1;
+            continue;
+        }
+        if i < bytes.len() && bytes[i] == b'}' {
+            break;
+        }
+        return Err("expected , or }".into());
+    }
+    Ok(out)
+}
+
+fn parse_json_string(bytes: &[u8], i: &mut usize) -> Result<String, String> {
+    if *i >= bytes.len() || bytes[*i] != b'"' {
+        return Err("expected string".into());
+    }
+    *i += 1;
+    let mut out = String::new();
+    while *i < bytes.len() {
+        match bytes[*i] {
+            b'"' => {
+                *i += 1;
+                return Ok(out);
+            }
+            b'\\' => {
+                *i += 1;
+                if *i >= bytes.len() {
+                    return Err("truncated escape".into());
+                }
+                match bytes[*i] {
+                    b'"' => out.push('"'),
+                    b'\\' => out.push('\\'),
+                    b'/' => out.push('/'),
+                    b'n' => out.push('\n'),
+                    b'r' => out.push('\r'),
+                    b't' => out.push('\t'),
+                    b'u' => return Err("unicode escapes not supported in session keys".into()),
+                    _ => return Err("bad escape".into()),
+                }
+                *i += 1;
+            }
+            b => {
+                out.push(b as char);
+                *i += 1;
+            }
+        }
+    }
+    Err("unterminated string".into())
+}
+
+fn skip_json_value(bytes: &[u8], i: &mut usize) -> Result<(), String> {
+    if *i >= bytes.len() {
+        return Err("unexpected end".into());
+    }
+    match bytes[*i] {
+        b'n' => {
+            if bytes.get(*i..*i + 4) == Some(b"null") {
+                *i += 4;
+                Ok(())
+            } else {
+                Err("bad null".into())
+            }
+        }
+        b't' => {
+            if bytes.get(*i..*i + 4) == Some(b"true") {
+                *i += 4;
+                Ok(())
+            } else {
+                Err("bad true".into())
+            }
+        }
+        b'f' => {
+            if bytes.get(*i..*i + 5) == Some(b"false") {
+                *i += 5;
+                Ok(())
+            } else {
+                Err("bad false".into())
+            }
+        }
+        b'"' => {
+            parse_json_string(bytes, i)?;
+            Ok(())
+        }
+        b'{' => {
+            *i += 1;
+            loop {
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                if *i < bytes.len() && bytes[*i] == b'}' {
+                    *i += 1;
+                    return Ok(());
+                }
+                parse_json_string(bytes, i)?;
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                if *i >= bytes.len() || bytes[*i] != b':' {
+                    return Err("expected :".into());
+                }
+                *i += 1;
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                skip_json_value(bytes, i)?;
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                if *i < bytes.len() && bytes[*i] == b',' {
+                    *i += 1;
+                    continue;
+                }
+                if *i < bytes.len() && bytes[*i] == b'}' {
+                    *i += 1;
+                    return Ok(());
+                }
+                return Err("expected , or }".into());
+            }
+        }
+        b'[' => {
+            *i += 1;
+            loop {
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                if *i < bytes.len() && bytes[*i] == b']' {
+                    *i += 1;
+                    return Ok(());
+                }
+                skip_json_value(bytes, i)?;
+                while *i < bytes.len() && bytes[*i].is_ascii_whitespace() {
+                    *i += 1;
+                }
+                if *i < bytes.len() && bytes[*i] == b',' {
+                    *i += 1;
+                    continue;
+                }
+                if *i < bytes.len() && bytes[*i] == b']' {
+                    *i += 1;
+                    return Ok(());
+                }
+                return Err("expected , or ]".into());
+            }
+        }
+        b'-' | b'0'..=b'9' => {
+            *i += 1;
+            while *i < bytes.len()
+                && (bytes[*i].is_ascii_digit()
+                    || matches!(bytes[*i], b'.' | b'e' | b'E' | b'+' | b'-'))
+            {
+                *i += 1;
+            }
+            Ok(())
+        }
+        _ => Err("unexpected json value".into()),
+    }
+}
+
 pub fn session_userdata_ptr(session: &mut Session) -> *mut c_void {
     session as *mut Session as *mut c_void
 }
@@ -228,7 +454,8 @@ unsafe fn session_from_ctx<'a>(ctx: *mut elara_CallContext) -> Option<&'a mut Se
     }
 }
 
-pub unsafe extern "C" fn native_session_get(
+/// Replace session data from a JSON object produced by the Elara encoder.
+pub unsafe extern "C" fn native_session_commit(
     s: *mut elara_State,
     ctx: *mut elara_CallContext,
 ) -> elara_Status {
@@ -238,51 +465,34 @@ pub unsafe extern "C" fn native_session_get(
             None => return elara_Status::ErrRuntime,
         };
         if sess.destroyed || elara_argc(ctx) < 1 {
-            return elara_Status::ErrRuntime;
+            elara_return(ctx, elara_val_nil());
+            return elara_Status::Ok;
         }
-        let key = match value_as_string(s, elara_arg(ctx, 0)) {
+        let raw = match value_as_string(s, elara_arg(ctx, 0)) {
             Ok(v) => v,
             Err(_) => return elara_Status::ErrRuntime,
         };
-        match sess.data.get(&key) {
-            Some(v) => {
-                let val = elara_val_string(s, v.as_ptr() as *const std::os::raw::c_char, v.len());
-                elara_return(ctx, val);
+        match json_object_to_raw_map(&raw) {
+            Ok(map) => {
+                sess.data = map;
+                elara_return(ctx, elara_val_nil());
+                elara_Status::Ok
             }
-            None => elara_return(ctx, elara_val_nil()),
+            Err(_) => elara_Status::ErrRuntime,
         }
-        elara_Status::Ok
     }
 }
 
-pub unsafe extern "C" fn native_session_set(
-    s: *mut elara_State,
+/// Fail a `session.set` that could not be serialized (leaves prior data untouched).
+pub unsafe extern "C" fn native_session_reject(
+    _s: *mut elara_State,
     ctx: *mut elara_CallContext,
 ) -> elara_Status {
     unsafe {
-        let sess = match session_from_ctx(ctx) {
-            Some(v) => v,
-            None => return elara_Status::ErrRuntime,
-        };
-        if sess.destroyed || elara_argc(ctx) < 2 {
+        if session_from_ctx(ctx).is_none() {
             return elara_Status::ErrRuntime;
         }
-        let key = match value_as_string(s, elara_arg(ctx, 0)) {
-            Ok(v) => v,
-            Err(_) => return elara_Status::ErrRuntime,
-        };
-        let val = elara_arg(ctx, 1);
-        if elara_is_nil(val) {
-            sess.data.remove(&key);
-        } else {
-            let value = match value_as_string(s, val) {
-                Ok(v) => v,
-                Err(_) => return elara_Status::ErrRuntime,
-            };
-            sess.data.insert(key, value);
-        }
-        elara_return(ctx, elara_val_nil());
-        elara_Status::Ok
+        elara_Status::ErrRuntime
     }
 }
 
@@ -323,6 +533,31 @@ pub fn session_set_cookie_line(cfg: &SessionConfig, session: &Session) -> String
     opts.format_set_cookie(&cfg.cookie_name, value)
 }
 
+/// Build an Elara table literal for loaded session JSON values.
+pub fn session_data_literal(data: &BTreeMap<String, String>) -> Result<String, String> {
+    if data.is_empty() {
+        return Ok("{}".into());
+    }
+    let mut parts = Vec::new();
+    for (k, v) in data {
+        let expr = crate::body::json_to_elara(v).map_err(|e| e.to_string())?;
+        let mut key = String::from("\"");
+        for ch in k.chars() {
+            match ch {
+                '\\' => key.push_str("\\\\"),
+                '"' => key.push_str("\\\""),
+                '\n' => key.push_str("\\n"),
+                '\r' => key.push_str("\\r"),
+                '\t' => key.push_str("\\t"),
+                c => key.push(c),
+            }
+        }
+        key.push('"');
+        parts.push(format!("[{key}] = {expr}"));
+    }
+    Ok(format!("{{\n  {}\n}}", parts.join(",\n  ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -334,10 +569,10 @@ mod tests {
         let store = FileSessionStore::open(&dir).unwrap();
         let mut s = store.load_or_create(None).unwrap();
         assert!(s.is_new);
-        s.data.insert("k".into(), "v".into());
+        s.data.insert("k".into(), json_quote("v"));
         store.save(&s).unwrap();
         let loaded = store.load(&s.id).expect("load");
-        assert_eq!(loaded.data.get("k").map(String::as_str), Some("v"));
+        assert_eq!(loaded.data.get("k").map(String::as_str), Some("\"v\""));
         store.destroy(&s.id).unwrap();
         assert!(store.load(&s.id).is_none());
     }
@@ -348,5 +583,13 @@ mod tests {
         let store = FileSessionStore::open(&dir).unwrap();
         assert!(store.path_for("../etc/passwd").is_err());
         assert!(store.path_for("abc/def").is_err());
+    }
+
+    #[test]
+    fn json_object_to_raw_map_extracts_values() {
+        let m = json_object_to_raw_map(r#"{"i":42,"b":true,"t":{"x":1}}"#).unwrap();
+        assert_eq!(m.get("i").map(String::as_str), Some("42"));
+        assert_eq!(m.get("b").map(String::as_str), Some("true"));
+        assert_eq!(m.get("t").map(String::as_str), Some(r#"{"x":1}"#));
     }
 }

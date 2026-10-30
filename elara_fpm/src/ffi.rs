@@ -58,6 +58,7 @@ unsafe extern "C" {
     ) -> elara_Status;
     pub fn elara_is_int(v: elara_Value) -> bool;
     pub fn elara_is_nil(v: elara_Value) -> bool;
+    pub fn elara_is_float(v: elara_Value) -> bool;
     pub fn elara_is_string(v: elara_Value) -> bool;
     pub fn elara_to_int(v: elara_Value) -> i64;
     pub fn elara_to_string(
@@ -67,6 +68,7 @@ unsafe extern "C" {
     ) -> *const c_char;
     pub fn elara_last_error(s: *const elara_State) -> *const c_char;
     pub fn elara_val_nil() -> elara_Value;
+    pub fn elara_val_bool(b: bool) -> elara_Value;
     pub fn elara_val_int(s: *mut elara_State, i: i64) -> elara_Value;
     pub fn elara_val_string(s: *mut elara_State, str: *const c_char, len: usize) -> elara_Value;
     pub fn elara_val_native_fn(
