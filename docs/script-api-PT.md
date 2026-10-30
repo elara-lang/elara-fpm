@@ -38,7 +38,7 @@ Escritas após `redirect` são ignoradas.
 ## Helpers
 
 - `html_escape(s)` — escapa `& < > " '` para texto/atributos HTML
-- `session.get(key)` / `session.set(key, value)` / `session.destroy()` — sessão em arquivo (quando o host habilita)
+- `session.get(key)` / `session.set(key, value)` / `session.destroy()` — sessão em arquivo (quando o host habilita). Valores persistidos podem ser string, int, bool, nil ou tables desses tipos (tables aninhadas até profundidade 8). Floats, functions, userdata e tables mais profundas falham em `session.set` sem alterar o arquivo de sessão anterior.
 
 ## Exemplo
 

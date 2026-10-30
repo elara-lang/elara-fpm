@@ -38,7 +38,7 @@ Writes after `redirect` are ignored.
 ## Helpers
 
 - `html_escape(s)` — escape `& < > " '` for HTML text/attributes
-- `session.get(key)` / `session.set(key, value)` / `session.destroy()` — file-backed session (when enabled by the host)
+- `session.get(key)` / `session.set(key, value)` / `session.destroy()` — file-backed session (when enabled by the host). Stored values may be string, int, bool, nil, or tables of those kinds (nested tables up to depth 8). Floats, functions, userdata, and deeper tables fail `session.set` without changing the previous session file.
 
 ## Example
 
