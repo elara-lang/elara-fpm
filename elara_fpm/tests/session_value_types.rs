@@ -81,3 +81,70 @@ res.write("ok")
     assert_eq!(r2.body, b"ok");
     let _ = fs::remove_dir_all(&cfg.store_dir);
 }
+
+#[test]
+fn non_serializable_set_fails_without_clobbering_file() {
+    let dir = std::env::temp_dir().join(format!("elara-fpm-svt-rej-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let cfg = cfg(dir.clone());
+    let limits = BodyLimits::default();
+
+    let req1 = RequestData {
+        method: "GET".into(),
+        path: "/".into(),
+        ..RequestData::default()
+    };
+    let (r1, e1) = run_script_with_session(
+        &req1,
+        r#"
+session.set("keep", "safe")
+res.write("ok")
+"#,
+        &limits,
+        Some(&cfg),
+    )
+    .expect("run1");
+    assert!(e1.is_none(), "{e1:?}");
+    let sid = sid_from_set_cookie(&r1.set_cookies[0]).to_string();
+    let before = fs::read_to_string(dir.join(&sid)).expect("session file");
+
+    let req2 = RequestData {
+        method: "GET".into(),
+        path: "/".into(),
+        ..RequestData::default()
+    }
+    .with_header("Cookie", format!("ELARASESSID={sid}"));
+    let (_r2, e2) = run_script_with_session(
+        &req2,
+        r#"
+session.set("bad", fn() { return 1 })
+res.write("should-not-run")
+"#,
+        &limits,
+        Some(&cfg),
+    )
+    .expect("run2");
+    assert!(e2.is_some(), "expected failure for function value");
+    let after = fs::read_to_string(dir.join(&sid)).expect("session file after");
+    assert_eq!(before, after, "session file must stay unchanged");
+
+    let req3 = RequestData {
+        method: "GET".into(),
+        path: "/".into(),
+        ..RequestData::default()
+    }
+    .with_header("Cookie", format!("ELARASESSID={sid}"));
+    let (r3, e3) = run_script_with_session(
+        &req3,
+        r#"
+let v = session.get("keep")
+res.write(v)
+"#,
+        &limits,
+        Some(&cfg),
+    )
+    .expect("run3");
+    assert!(e3.is_none(), "{e3:?}");
+    assert_eq!(r3.body, b"safe");
+    let _ = fs::remove_dir_all(&dir);
+}
