@@ -46,5 +46,5 @@ fn truncated_elac_is_500() {
     )
     .expect("run");
     assert!(err.is_some() || resp.status == 500);
-    assert_eq!(resp.status, 500);
+    assert_eq!(resp.status, 500, "truncated bytecode must be a host 500");
 }
