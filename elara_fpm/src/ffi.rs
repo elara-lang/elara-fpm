@@ -56,6 +56,20 @@ unsafe extern "C" {
         source: *const c_char,
         out_result: *mut elara_Value,
     ) -> elara_Status;
+    pub fn elara_load_bytecode(
+        s: *mut elara_State,
+        buf: *const u8,
+        len: usize,
+        out_closure: *mut elara_Value,
+    ) -> elara_Status;
+    pub fn elara_compile_to_bytecode(
+        s: *mut elara_State,
+        name: *const c_char,
+        source: *const c_char,
+        out_buf: *mut *mut u8,
+        out_len: *mut usize,
+    ) -> elara_Status;
+    pub fn elara_free_buffer(s: *mut elara_State, buf: *mut u8, len: usize);
     pub fn elara_is_int(v: elara_Value) -> bool;
     pub fn elara_is_nil(v: elara_Value) -> bool;
     pub fn elara_is_float(v: elara_Value) -> bool;

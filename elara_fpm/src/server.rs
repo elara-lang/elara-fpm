@@ -8,9 +8,9 @@ use std::time::Duration;
 use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
-use crate::routing::{Route, load_script_source, resolve_route, serve_static};
+use crate::routing::{Route, resolve_route, serve_static};
 use crate::sandbox::ELARA_CAP_SYS_ENV;
-use crate::script_api::{RequestData, run_script_sandboxed};
+use crate::script_api::{RequestData, run_script_path_sandboxed};
 
 /// Configuration for the built-in development server.
 #[derive(Debug, Clone)]
@@ -279,31 +279,28 @@ pub fn dispatch_request_with(
     let resp = match resolve_route(docroot, &req.path) {
         Route::Error(e) => e,
         Route::Static { path, content_type } => serve_static(&path, &content_type),
-        Route::Script(path) => match load_script_source(&path) {
-            Err(e) => e,
-            Ok(source) => {
-                match run_script_sandboxed(
-                    req,
-                    &source,
-                    &process.body_limits,
-                    Some(&process.session),
-                    &process.sandbox,
-                ) {
-                    Ok((resp, err)) => {
-                        if err.is_some() {
-                            if resp.status == 500 {
-                                resp
-                            } else {
-                                host_error_page(500, "Internal Server Error")
-                            }
-                        } else {
+        Route::Script(path) => {
+            match run_script_path_sandboxed(
+                &path,
+                req,
+                &process.body_limits,
+                Some(&process.session),
+                &process.sandbox,
+            ) {
+                Ok((resp, err)) => {
+                    if err.is_some() {
+                        if resp.status == 500 {
                             resp
+                        } else {
+                            host_error_page(500, "Internal Server Error")
                         }
+                    } else {
+                        resp
                     }
-                    Err(_) => host_error_page(500, "Internal Server Error"),
                 }
+                Err(_) => host_error_page(500, "Internal Server Error"),
             }
-        },
+        }
     };
     apply_head_method(&req.method, resp)
 }

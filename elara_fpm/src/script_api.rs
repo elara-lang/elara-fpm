@@ -20,8 +20,9 @@ use std::collections::BTreeMap;
 use crate::body::{BodyLimits, enrich_request};
 use crate::cookies::{native_res_cookie, parse_cookie_header};
 use crate::ffi::{
-    elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_val_native_fn,
-    elara_val_nil, eval,
+    elara_State, elara_Status, elara_Value, elara_call, elara_close, elara_compile_to_bytecode,
+    elara_free_buffer, elara_load_bytecode, elara_val_native_fn, elara_val_nil, eval,
+    last_error_message,
 };
 use crate::helpers::native_html_escape;
 use crate::response::{
@@ -367,6 +368,46 @@ pub fn run_script_on(
 ) -> Result<(), String> {
     let wrapped = wrap_script(request, source, bindings.session.as_ref())?;
     let callable = eval(state, "elara_fpm_wrap", &wrapped)?;
+    call_wrapped_run(state, request, bindings, callable)
+}
+
+/// Load a `.elac` chunk, run it to obtain the host entry function, then call that function.
+pub fn run_bytecode_on(
+    state: *mut elara_State,
+    request: &RequestData,
+    bindings: &mut ScriptBindings,
+    bytes: &[u8],
+) -> Result<(), String> {
+    unsafe {
+        let mut chunk = elara_val_nil();
+        let status = elara_load_bytecode(state, bytes.as_ptr(), bytes.len(), &mut chunk);
+        if status != elara_Status::Ok {
+            return Err(last_error_message(state));
+        }
+        let mut results = [elara_val_nil()];
+        let mut nret: u16 = 0;
+        let status = elara_call(
+            state,
+            chunk,
+            std::ptr::null(),
+            0,
+            results.as_mut_ptr(),
+            1,
+            &mut nret,
+        );
+        if status != elara_Status::Ok {
+            return Err(last_error_message(state));
+        }
+        call_wrapped_run(state, request, bindings, results[0])
+    }
+}
+
+fn call_wrapped_run(
+    state: *mut elara_State,
+    request: &RequestData,
+    bindings: &mut ScriptBindings,
+    callable: elara_Value,
+) -> Result<(), String> {
     let ud = userdata_ptr(&mut bindings.response);
     unsafe {
         let body_val = crate::ffi::elara_val_string(
@@ -400,7 +441,7 @@ pub fn run_script_on(
                 &mut nret,
             );
             if status != elara_Status::Ok {
-                return Err(crate::ffi::last_error_message(state));
+                return Err(last_error_message(state));
             }
         } else {
             let args: [elara_Value; 7] = [
@@ -424,11 +465,127 @@ pub fn run_script_on(
                 &mut nret,
             );
             if status != elara_Status::Ok {
-                return Err(crate::ffi::last_error_message(state));
+                return Err(last_error_message(state));
             }
         }
     }
     Ok(())
+}
+
+/// Compile wrapped host script source to `.elac` bytes (for fixtures and tests).
+pub fn compile_wrapped_script_to_bytecode(
+    request: &RequestData,
+    source: &str,
+) -> Result<Vec<u8>, String> {
+    let wrapped = wrap_script(request, source, None)?;
+    unsafe {
+        let state = open_request_state(&SandboxConfig::default())?;
+        let name = std::ffi::CString::new("fixture").map_err(|e| e.to_string())?;
+        let src = std::ffi::CString::new(wrapped).map_err(|e| e.to_string())?;
+        let mut buf: *mut u8 = std::ptr::null_mut();
+        let mut len: usize = 0;
+        let status =
+            elara_compile_to_bytecode(state, name.as_ptr(), src.as_ptr(), &mut buf, &mut len);
+        if status != elara_Status::Ok {
+            let err = last_error_message(state);
+            elara_close(state);
+            return Err(err);
+        }
+        let bytes = std::slice::from_raw_parts(buf, len).to_vec();
+        elara_free_buffer(state, buf, len);
+        elara_close(state);
+        Ok(bytes)
+    }
+}
+
+/// Run `.ela` source or `.elac` bytecode from a document-root path.
+pub fn run_script_path_sandboxed(
+    path: &std::path::Path,
+    request: &RequestData,
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
+) -> Result<(FinalResponse, Option<String>), String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "elac" {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        run_bytecode_sandboxed(request, &bytes, limits, session_cfg, sandbox)
+    } else {
+        let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        run_script_sandboxed(request, &source, limits, session_cfg, sandbox)
+    }
+}
+
+/// Like [`run_script_sandboxed`] for precompiled bytecode.
+pub fn run_bytecode_sandboxed(
+    request: &RequestData,
+    bytes: &[u8],
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
+) -> Result<(FinalResponse, Option<String>), String> {
+    let mut prepared = request.clone();
+    prepared.args = crate::body::parse_urlencoded(&prepared.query);
+    if prepared.cookies.is_empty()
+        && let Some(raw) = prepared.headers.get("cookie")
+    {
+        prepared.cookies = parse_cookie_header(raw);
+    }
+    if let Err(e) = enrich_request(&mut prepared, limits) {
+        return Err(e.to_string());
+    }
+
+    let store = if let Some(cfg) = session_cfg {
+        Some(FileSessionStore::open(&cfg.store_dir)?)
+    } else {
+        None
+    };
+
+    let outcome = unsafe {
+        let state = match open_request_state(sandbox) {
+            Ok(s) => s,
+            Err(e) => {
+                crate::multipart::cleanup_uploads(&prepared);
+                return Err(e);
+            }
+        };
+        let mut bindings = ScriptBindings::new();
+        if let (Some(cfg), Some(store)) = (session_cfg, store.as_ref()) {
+            let cookie_id = prepared.cookies.get(&cfg.cookie_name).map(String::as_str);
+            bindings.session = Some(store.load_or_create(cookie_id)?);
+        }
+        let result = run_bytecode_on(state, &prepared, &mut bindings, bytes);
+        let script_ok = result.is_ok();
+        if let (Some(cfg), Some(store), Some(session)) =
+            (session_cfg, store.as_ref(), bindings.session.as_ref())
+        {
+            if script_ok {
+                let _ = store.save(session);
+            }
+            let issue_cookie = session.is_new || session.destroyed || script_ok;
+            if issue_cookie {
+                bindings
+                    .response
+                    .set_cookies
+                    .push(session_set_cookie_line(cfg, session));
+            }
+        }
+        let response = bindings.finalize();
+        elara_close(state);
+        match result {
+            Ok(()) => Ok((response, None)),
+            Err(e) => Ok((
+                crate::helpers::host_error_page(500, "Internal Server Error"),
+                Some(e),
+            )),
+        }
+    };
+    crate::multipart::cleanup_uploads(&prepared);
+    outcome
 }
 
 /// Smoke helper: inject via wrapper and confirm `res.write` works (bindings alive).

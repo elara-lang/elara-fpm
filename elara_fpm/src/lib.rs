@@ -38,8 +38,9 @@ pub use sandbox::{
     SandboxConfig, open_request_state,
 };
 pub use script_api::{
-    RequestData, ScriptBindings, UploadedFile, run_script, run_script_on, run_script_sandboxed,
-    run_script_with_limits, run_script_with_session, smoke_inject_req_res,
+    RequestData, ScriptBindings, UploadedFile, compile_wrapped_script_to_bytecode,
+    run_bytecode_sandboxed, run_script, run_script_on, run_script_path_sandboxed,
+    run_script_sandboxed, run_script_with_limits, run_script_with_session, smoke_inject_req_res,
 };
 pub use server::{
     CliArgs, DevServerConfig, bind_listener, dispatch_request, dispatch_request_with, parse_cli,

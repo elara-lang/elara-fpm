@@ -7,8 +7,8 @@ use std::path::Path;
 use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
-use crate::routing::{Route, load_script_source, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_sandboxed};
+use crate::routing::{Route, resolve_route, serve_static};
+use crate::script_api::{RequestData, run_script_path_sandboxed};
 
 /// Build [`RequestData`] from a CGI-style environment map and stdin body bytes.
 pub fn request_from_cgi_env(env: &BTreeMap<String, String>, stdin_body: &[u8]) -> RequestData {
@@ -152,20 +152,15 @@ pub fn handle_cgi_request_with(
 }
 
 fn run_script_file(path: &Path, req: &RequestData, process: &ProcessConfig) -> FinalResponse {
-    match load_script_source(path) {
-        Err(e) => e,
-        Ok(source) => {
-            match run_script_sandboxed(
-                req,
-                &source,
-                &process.body_limits,
-                Some(&process.session),
-                &process.sandbox,
-            ) {
-                Ok((resp, _)) => resp,
-                Err(_) => host_error_page(500, "Internal Server Error"),
-            }
-        }
+    match run_script_path_sandboxed(
+        path,
+        req,
+        &process.body_limits,
+        Some(&process.session),
+        &process.sandbox,
+    ) {
+        Ok((resp, _)) => resp,
+        Err(_) => host_error_page(500, "Internal Server Error"),
     }
 }
 
