@@ -28,8 +28,8 @@ Ao iniciar, o processo imprime a URL e o document root em **stderr**.
 - Só texto claro — sem TLS, sem HTTP/2
 - Para desenvolvimento local, não produção pública
 - Cada request recebe um estado de VM sandboxed novo
-- Scripts `.ela` executam; outros arquivos no docroot são estáticos
-- URLs de diretório escolhem o primeiro índice existente: `index.ela` (executa), depois `index.elac` (executa quando suportado), depois `index.html` (estático). Caso contrário `404`. Sem listagem de diretório.
+- Scripts `.ela` (fonte) e `.elac` (bytecode) executam; outros arquivos no docroot são estáticos
+- URLs de diretório escolhem o primeiro índice existente: `index.ela` (executa), depois `index.elac` (executa), depois `index.html` (estático). Caso contrário `404`. Sem listagem de diretório.
 - Caminhos não podem escapar do document root (`..` é rejeitado)
 
 ## Demos
