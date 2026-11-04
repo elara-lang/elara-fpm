@@ -3,8 +3,9 @@
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use crate::access_log::{elapsed_ms_since, write_access_log};
 use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
@@ -78,8 +79,8 @@ pub fn serve_dev_connection_with(
 
 enum FrameError {
     Eof,
-    PayloadTooLarge,
-    NotImplemented,
+    PayloadTooLarge { method: String, path: String },
+    NotImplemented { method: String, path: String },
     Bad(String),
 }
 
@@ -95,6 +96,7 @@ fn handle_connection(
 ) -> Result<(), String> {
     let mut pending = Vec::new();
     loop {
+        let started = Instant::now();
         let framed = match read_http_request(
             &mut stream,
             &mut pending,
@@ -102,17 +104,17 @@ fn handle_connection(
         ) {
             Ok(f) => f,
             Err(FrameError::Eof) => return Ok(()),
-            Err(FrameError::PayloadTooLarge) => {
-                write_http_response(
-                    &mut stream,
-                    &host_error_page(413, "Payload Too Large"),
-                    true,
-                )?;
+            Err(FrameError::PayloadTooLarge { method, path }) => {
+                let response = host_error_page(413, "Payload Too Large");
+                write_access_log(&method, &path, response.status, elapsed_ms_since(started));
+                write_http_response(&mut stream, &response, true)?;
                 let _ = stream.flush();
                 return Ok(());
             }
-            Err(FrameError::NotImplemented) => {
-                write_http_response(&mut stream, &host_error_page(501, "Not Implemented"), true)?;
+            Err(FrameError::NotImplemented { method, path }) => {
+                let response = host_error_page(501, "Not Implemented");
+                write_access_log(&method, &path, response.status, elapsed_ms_since(started));
+                write_http_response(&mut stream, &response, true)?;
                 let _ = stream.flush();
                 return Ok(());
             }
@@ -133,6 +135,12 @@ fn handle_connection(
             framed.req.remote = peer.ip().to_string();
         }
         let response = dispatch_request_with(docroot, &framed.req, process);
+        write_access_log(
+            &framed.req.method,
+            &framed.req.path,
+            response.status,
+            elapsed_ms_since(started),
+        );
         write_http_response(&mut stream, &response, framed.close)?;
         let _ = stream.flush();
         if framed.close {
@@ -224,7 +232,10 @@ fn read_http_request(
             .split(',')
             .any(|t| t.trim() == "chunked")
     }) {
-        return Err(FrameError::NotImplemented);
+        return Err(FrameError::NotImplemented {
+            method: method.clone(),
+            path: path.clone(),
+        });
     }
 
     let body_len = match headers.get("content-length") {
@@ -234,7 +245,7 @@ fn read_http_request(
         None => 0,
     };
     if body_len > max_body {
-        return Err(FrameError::PayloadTooLarge);
+        return Err(FrameError::PayloadTooLarge { method, path });
     }
 
     let close = connection_should_close(&version, &headers);

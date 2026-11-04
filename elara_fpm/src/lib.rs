@@ -1,5 +1,6 @@
 //! Elara FPM host library (SAPI).
 
+pub mod access_log;
 pub mod body;
 pub mod cgi;
 pub mod cookies;
@@ -17,6 +18,9 @@ pub mod session;
 
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
+pub use access_log::{
+    elapsed_ms_since, format_access_log_line, write_access_log, write_access_log_to,
+};
 pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use cgi::{
     cgi_env_from_os, format_cgi_response, handle_cgi_request, handle_cgi_request_with,

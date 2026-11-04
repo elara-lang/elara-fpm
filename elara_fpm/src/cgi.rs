@@ -3,7 +3,9 @@
 use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::time::Instant;
 
+use crate::access_log::{elapsed_ms_since, write_access_log};
 use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
@@ -204,9 +206,17 @@ pub fn run_cgi_once(docroot: &Path) -> i32 {
 
 /// Like [`run_cgi_once`] with process configuration.
 pub fn run_cgi_once_with(docroot: &Path, process: &ProcessConfig) -> i32 {
+    let started = Instant::now();
     let env = cgi_env_from_os();
     let body = read_cgi_stdin(&env, &mut std::io::stdin());
     let resp = handle_cgi_request_with(docroot, &env, &body, process);
+    let req = request_from_cgi_env(&env, &body);
+    write_access_log(
+        &req.method,
+        &req.path,
+        resp.status,
+        elapsed_ms_since(started),
+    );
     match write_cgi_stdout(&mut std::io::stdout(), &resp) {
         Ok(()) => 0,
         Err(_) => 1,
