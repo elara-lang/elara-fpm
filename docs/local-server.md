@@ -12,6 +12,16 @@ make build
 
 On start, the process prints the listen URL and document root to **stderr**.
 
+## Access log
+
+After each finished request (including host `4xx` / `5xx` pages), one line goes to **stderr**:
+
+```text
+<method> <path> <status> <elapsed_ms>
+```
+
+Example: `GET /hello.ela 200 3`. The path omits `?` and the query string. Header values, cookies, and the body are never logged. A failed log write does not change the response.
+
 ## Request framing
 
 - With `Content-Length`, `-S` reads the full body (across multiple socket reads) up to the host body limit (default 1 MiB). Over that limit returns HTTP `413` and closes the connection.

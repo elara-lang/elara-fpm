@@ -23,6 +23,16 @@ elara-fpm -F /run/elara-fpm.sock -t /var/www/app
 
 Sample nginx snippet: [`demos/nginx-fastcgi.conf`](../demos/nginx-fastcgi.conf).
 
+## Access log
+
+CGI and FastCGI write the same stderr line as `-S` after each finished request:
+
+```text
+<method> <path> <status> <elapsed_ms>
+```
+
+The path omits the query string. CGI still writes the response only to stdout.
+
 ## Document root
 
 All script and static paths are resolved under the configured document root. Escape attempts (`..`, absolute paths) fail.

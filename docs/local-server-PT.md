@@ -12,6 +12,16 @@ make build
 
 Ao iniciar, o processo imprime a URL e o document root em **stderr**.
 
+## Access log
+
+Depois de cada request concluído (incluindo páginas `4xx` / `5xx` do host), uma linha vai para **stderr**:
+
+```text
+<method> <path> <status> <elapsed_ms>
+```
+
+Exemplo: `GET /hello.ela 200 3`. O path omite `?` e a query string. Valores de header, cookies e o body nunca são registrados. Falha ao escrever o log não altera a resposta.
+
 ## Framing de request
 
 - Com `Content-Length`, `-S` lê o body completo (em várias leituras do socket) até o limite do host (padrão 1 MiB). Acima disso responde HTTP `413` e fecha a conexão.
