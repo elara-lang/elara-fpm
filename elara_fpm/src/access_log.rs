@@ -1,7 +1,22 @@
 //! One-line access log on stderr after each finished request.
 
+use std::cell::RefCell;
 use std::io::{self, Write};
 use std::time::Instant;
+
+thread_local! {
+    static CAPTURE: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+}
+
+/// Start capturing access lines on this thread (in addition to stderr).
+pub fn begin_access_log_capture() {
+    CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+}
+
+/// Take captured access lines for this thread, ending capture.
+pub fn take_access_log_capture() -> Vec<String> {
+    CAPTURE.with(|c| c.borrow_mut().take().unwrap_or_default())
+}
 
 /// Format `<method> <path> <status> <elapsed_ms>` (path has no query).
 pub fn format_access_log_line(method: &str, path: &str, status: u16, elapsed_ms: u64) -> String {
@@ -17,6 +32,11 @@ pub fn write_access_log_to(
     elapsed_ms: u64,
 ) {
     let line = format_access_log_line(method, path, status, elapsed_ms);
+    CAPTURE.with(|c| {
+        if let Some(buf) = c.borrow_mut().as_mut() {
+            buf.push(line.clone());
+        }
+    });
     let _ = writeln!(w, "{line}");
 }
 

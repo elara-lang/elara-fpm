@@ -7,8 +7,10 @@ use std::net::TcpListener;
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use crate::cgi::{format_cgi_response, handle_cgi_request_with};
+use crate::access_log::{elapsed_ms_since, write_access_log};
+use crate::cgi::{format_cgi_response, handle_cgi_request_with, request_from_cgi_env};
 use crate::process::ProcessConfig;
 
 const FCGI_BEGIN_REQUEST: u8 = 1;
@@ -131,7 +133,15 @@ pub fn handle_fastcgi_connection_with(
             _ => {}
         }
     }
+    let started = Instant::now();
     let resp = handle_cgi_request_with(docroot, &params, &stdin, process);
+    let req = request_from_cgi_env(&params, &stdin);
+    write_access_log(
+        &req.method,
+        &req.path,
+        resp.status,
+        elapsed_ms_since(started),
+    );
     let payload = format_cgi_response(&resp);
     write_stream_records(stream, FCGI_STDOUT, request_id, &payload)?;
     write_record(stream, FCGI_STDOUT, request_id, &[])?; // end stdout

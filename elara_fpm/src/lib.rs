@@ -19,7 +19,8 @@ pub mod session;
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
 pub use access_log::{
-    elapsed_ms_since, format_access_log_line, write_access_log, write_access_log_to,
+    begin_access_log_capture, elapsed_ms_since, format_access_log_line, take_access_log_capture,
+    write_access_log, write_access_log_to,
 };
 pub use body::{BodyError, BodyLimits, parse_urlencoded};
 pub use cgi::{

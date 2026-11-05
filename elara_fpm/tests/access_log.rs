@@ -1,8 +1,11 @@
-use elara_fpm::serve_dev_connection;
+use elara_fpm::{
+    begin_access_log_capture, encode_test_request, extract_stdout, handle_fastcgi_connection,
+    serve_dev_connection, take_access_log_capture,
+};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::fd::FromRawFd;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -37,47 +40,6 @@ fn is_access_line(line: &str) -> bool {
     matches!(method, "GET" | "POST" | "HEAD" | "PUT" | "DELETE")
 }
 
-fn find_access_lines(stderr: &str) -> Vec<String> {
-    stderr
-        .lines()
-        .filter(|l| is_access_line(l))
-        .map(|l| l.to_string())
-        .collect()
-}
-
-/// Redirect fd 2 into a pipe for the duration of `f`, then restore.
-fn capture_stderr<R>(f: impl FnOnce() -> R) -> (R, Vec<u8>) {
-    unsafe extern "C" {
-        fn pipe(fds: *mut i32) -> i32;
-        fn dup(fd: i32) -> i32;
-        fn dup2(oldfd: i32, newfd: i32) -> i32;
-        fn close(fd: i32) -> i32;
-    }
-
-    let mut fds = [0i32; 2];
-    assert_eq!(unsafe { pipe(fds.as_mut_ptr()) }, 0);
-    let (read_fd, write_fd) = (fds[0], fds[1]);
-    let old_stderr = unsafe { dup(2) };
-    assert!(old_stderr >= 0);
-    assert_eq!(unsafe { dup2(write_fd, 2) }, 2);
-    unsafe {
-        close(write_fd);
-    }
-
-    let result = f();
-
-    // dup2 closes the pipe write end currently on fd 2, so the reader sees EOF.
-    assert_eq!(unsafe { dup2(old_stderr, 2) }, 2);
-    unsafe {
-        close(old_stderr);
-    }
-
-    let mut reader = unsafe { std::fs::File::from_raw_fd(read_fd) };
-    let mut buf = Vec::new();
-    let _ = reader.read_to_end(&mut buf);
-    (result, buf)
-}
-
 #[test]
 fn cgi_stderr_has_one_access_line() {
     let dir = std::env::temp_dir().join(format!("elara-fpm-alog-cgi-{}", std::process::id()));
@@ -106,7 +68,7 @@ fn cgi_stderr_has_one_access_line() {
     assert!(!stdout.contains("secret=1"), "{stdout}");
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let lines = find_access_lines(&stderr);
+    let lines: Vec<_> = stderr.lines().filter(|l| is_access_line(l)).collect();
     assert_eq!(lines.len(), 1, "stderr={stderr}");
     assert!(
         lines[0].starts_with("GET /hi.ela 200 "),
@@ -127,15 +89,14 @@ fn dev_server_stderr_has_one_access_line() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     let docroot = dir.clone();
-    let captured = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let captured = Arc::new(Mutex::new(Vec::<String>::new()));
     let captured2 = Arc::clone(&captured);
 
     let handle = thread::spawn(move || {
         let (stream, _) = listener.accept().unwrap();
-        let (_, lines) = capture_stderr(|| {
-            let _ = serve_dev_connection(stream, &docroot);
-        });
-        *captured2.lock().unwrap() = lines;
+        begin_access_log_capture();
+        let _ = serve_dev_connection(stream, &docroot);
+        *captured2.lock().unwrap() = take_access_log_capture();
     });
 
     thread::sleep(Duration::from_millis(20));
@@ -155,15 +116,67 @@ fn dev_server_stderr_has_one_access_line() {
     assert!(text.contains("alog-s"), "{text}");
 
     handle.join().unwrap();
-    let raw = captured.lock().unwrap().clone();
-    let stderr = String::from_utf8_lossy(&raw);
-    let lines = find_access_lines(&stderr);
-    assert_eq!(lines.len(), 1, "stderr={stderr}");
+    let lines = captured.lock().unwrap().clone();
+    assert_eq!(lines.len(), 1, "lines={lines:?}");
     assert!(
         lines[0].starts_with("GET /hi.ela 200 "),
-        "line={} stderr={stderr}",
+        "line={}",
         lines[0]
     );
-    assert!(!stderr.contains("token=nope"), "query leaked: {stderr}");
+    assert!(
+        !lines[0].contains("token=nope"),
+        "query leaked: {}",
+        lines[0]
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fastcgi_stderr_has_one_access_line() {
+    let dir = std::env::temp_dir().join(format!("elara-fpm-alog-fcgi-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("hi.ela"), r#"res.write("alog-fcgi")"#).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    let docroot = dir.clone();
+    let captured = Arc::new(Mutex::new(Vec::<String>::new()));
+    let captured2 = Arc::clone(&captured);
+
+    let handle = thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        begin_access_log_capture();
+        handle_fastcgi_connection(&mut stream, &docroot).unwrap();
+        *captured2.lock().unwrap() = take_access_log_capture();
+    });
+
+    thread::sleep(Duration::from_millis(20));
+    let mut params = BTreeMap::new();
+    params.insert("REQUEST_METHOD".into(), "GET".into());
+    params.insert("PATH_INFO".into(), "/hi.ela".into());
+    params.insert("QUERY_STRING".into(), "hide=1".into());
+    let req = encode_test_request(&params, b"");
+    let mut client = TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    client.write_all(&req).unwrap();
+    let mut buf = Vec::new();
+    client.read_to_end(&mut buf).unwrap();
+    let stdout = extract_stdout(&buf);
+    let text = String::from_utf8_lossy(&stdout);
+    assert!(text.contains("Status: 200 "), "{text}");
+    assert!(text.contains("alog-fcgi"), "{text}");
+
+    handle.join().unwrap();
+    let lines = captured.lock().unwrap().clone();
+    assert_eq!(lines.len(), 1, "lines={lines:?}");
+    assert!(
+        lines[0].starts_with("GET /hi.ela 200 "),
+        "line={}",
+        lines[0]
+    );
+    assert!(!lines[0].contains("hide=1"), "query leaked: {}", lines[0]);
     let _ = fs::remove_dir_all(&dir);
 }
