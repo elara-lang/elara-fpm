@@ -10,7 +10,8 @@ use crate::helpers::{apply_head_method, host_error_page};
 use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, resolve_route, serve_static};
-use crate::script_api::{RequestData, run_script_path_sandboxed};
+use crate::script_api::{RequestData, run_script_path_sandboxed_with_templates};
+use crate::template::default_template_dir;
 
 /// Build [`RequestData`] from a CGI-style environment map and stdin body bytes.
 pub fn request_from_cgi_env(env: &BTreeMap<String, String>, stdin_body: &[u8]) -> RequestData {
@@ -135,31 +136,41 @@ pub fn handle_cgi_request_with(
         ) && canon.starts_with(&root)
             && canon.is_file()
         {
-            run_script_file(&canon, &req, process)
+            run_script_file(&canon, &req, process, docroot)
         } else {
             match resolve_route(docroot, &req.path) {
                 Route::Error(e) => e,
                 Route::Static { path, content_type } => serve_static(&path, &content_type),
-                Route::Script(path) => run_script_file(&path, &req, process),
+                Route::Script(path) => run_script_file(&path, &req, process, docroot),
             }
         }
     } else {
         match resolve_route(docroot, &req.path) {
             Route::Error(e) => e,
             Route::Static { path, content_type } => serve_static(&path, &content_type),
-            Route::Script(path) => run_script_file(&path, &req, process),
+            Route::Script(path) => run_script_file(&path, &req, process, docroot),
         }
     };
     apply_head_method(&req.method, resp)
 }
 
-fn run_script_file(path: &Path, req: &RequestData, process: &ProcessConfig) -> FinalResponse {
-    match run_script_path_sandboxed(
+fn run_script_file(
+    path: &Path,
+    req: &RequestData,
+    process: &ProcessConfig,
+    docroot: &Path,
+) -> FinalResponse {
+    let tmpl = process
+        .template_dir
+        .clone()
+        .unwrap_or_else(|| default_template_dir(docroot));
+    match run_script_path_sandboxed_with_templates(
         path,
         req,
         &process.body_limits,
         Some(&process.session),
         &process.sandbox,
+        Some(tmpl.as_path()),
     ) {
         Ok((resp, _)) => resp,
         Err(_) => host_error_page(500, "Internal Server Error"),

@@ -34,6 +34,7 @@ use crate::session::{
     FileSessionStore, Session, SessionConfig, native_session_commit, native_session_destroy,
     native_session_reject, session_data_literal, session_set_cookie_line, session_userdata_ptr,
 };
+use crate::template::native_res_render;
 
 /// Inbound request fields exposed on `req`.
 #[derive(Debug, Clone, Default)]
@@ -163,12 +164,11 @@ pub(crate) fn wrap_script(
     } else {
         request.json_elara.clone()
     };
+    let enc_helpers = include_str!("session_elara.inc.ela");
     let session_block = if let Some(sess) = session {
         let data_lit = session_data_literal(&sess.data)?;
-        let helpers = include_str!("session_elara.inc.ela");
         format!(
             r#"
-{helpers}
   let session_data = {data_lit}
   let session = {{
     get: fn(k) {{
@@ -198,15 +198,16 @@ pub(crate) fn wrap_script(
         String::new()
     };
     let params = if session.is_some() {
-        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __html_escape, __session_commit, __session_destroy, __session_reject, __req_body"
+        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __res_render, __html_escape, __session_commit, __session_destroy, __session_reject, __req_body"
     } else {
-        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __html_escape, __req_body"
+        "__res_set_status, __res_header, __res_write, __res_cookie, __res_redirect, __res_render, __html_escape, __req_body"
     };
     // Body is passed as a call argument (`__req_body`) because Elara double-quoted
     // strings interpolate `{…}` and cannot safely embed raw JSON text.
     Ok(format!(
         r#"
 fn __elara_fpm_run({params}) {{
+{enc_helpers}
   let req = {{
     method: {method},
     path: {path},
@@ -233,6 +234,18 @@ fn __elara_fpm_run({params}) {{
       __res_cookie(name, value, path, http_only, secure, same_site, max_age)
     }},
     redirect: __res_redirect,
+    render: fn(path, ctx) {{
+      let c = ctx
+      if c == nil {{
+        c = {{}}
+      }}
+      let j = __fpm_sess_enc(c, 0)
+      if j == nil {{
+        __res_render(path, "")
+      }} else {{
+        __res_render(path, j)
+      }}
+    }},
   }}
   let html_escape = __html_escape
 {session_block}
@@ -298,6 +311,21 @@ pub fn run_script_sandboxed(
     session_cfg: Option<&SessionConfig>,
     sandbox: &SandboxConfig,
 ) -> Result<(FinalResponse, Option<String>), String> {
+    run_script_sandboxed_with_templates(request, source, limits, session_cfg, sandbox, None)
+}
+
+/// Like [`run_script_sandboxed`] with an explicit template directory.
+pub fn run_script_sandboxed_with_templates(
+    request: &RequestData,
+    source: &str,
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
+    template_dir: Option<&std::path::Path>,
+) -> Result<(FinalResponse, Option<String>), String> {
+    if let Some(dir) = template_dir {
+        crate::template::set_template_dir(dir.to_path_buf());
+    }
     let mut prepared = request.clone();
     prepared.args = crate::body::parse_urlencoded(&prepared.query);
     if prepared.cookies.is_empty()
@@ -417,12 +445,13 @@ fn call_wrapped_run(
         );
         if let Some(sess) = bindings.session.as_mut() {
             let sud = session_userdata_ptr(sess);
-            let args: [elara_Value; 10] = [
+            let args: [elara_Value; 11] = [
                 elara_val_native_fn(state, Some(native_res_set_status), ud),
                 elara_val_native_fn(state, Some(native_res_header), ud),
                 elara_val_native_fn(state, Some(native_res_write), ud),
                 elara_val_native_fn(state, Some(native_res_cookie), ud),
                 elara_val_native_fn(state, Some(native_res_redirect), ud),
+                elara_val_native_fn(state, Some(native_res_render), ud),
                 elara_val_native_fn(state, Some(native_html_escape), std::ptr::null_mut()),
                 elara_val_native_fn(state, Some(native_session_commit), sud),
                 elara_val_native_fn(state, Some(native_session_destroy), sud),
@@ -435,7 +464,7 @@ fn call_wrapped_run(
                 state,
                 callable,
                 args.as_ptr(),
-                10,
+                11,
                 results.as_mut_ptr(),
                 1,
                 &mut nret,
@@ -444,12 +473,13 @@ fn call_wrapped_run(
                 return Err(last_error_message(state));
             }
         } else {
-            let args: [elara_Value; 7] = [
+            let args: [elara_Value; 8] = [
                 elara_val_native_fn(state, Some(native_res_set_status), ud),
                 elara_val_native_fn(state, Some(native_res_header), ud),
                 elara_val_native_fn(state, Some(native_res_write), ud),
                 elara_val_native_fn(state, Some(native_res_cookie), ud),
                 elara_val_native_fn(state, Some(native_res_redirect), ud),
+                elara_val_native_fn(state, Some(native_res_render), ud),
                 elara_val_native_fn(state, Some(native_html_escape), std::ptr::null_mut()),
                 body_val,
             ];
@@ -459,7 +489,7 @@ fn call_wrapped_run(
                 state,
                 callable,
                 args.as_ptr(),
-                7,
+                8,
                 results.as_mut_ptr(),
                 1,
                 &mut nret,
@@ -506,6 +536,18 @@ pub fn run_script_path_sandboxed(
     session_cfg: Option<&SessionConfig>,
     sandbox: &SandboxConfig,
 ) -> Result<(FinalResponse, Option<String>), String> {
+    run_script_path_sandboxed_with_templates(path, request, limits, session_cfg, sandbox, None)
+}
+
+/// Like [`run_script_path_sandboxed`] with an explicit template directory.
+pub fn run_script_path_sandboxed_with_templates(
+    path: &std::path::Path,
+    request: &RequestData,
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
+    template_dir: Option<&std::path::Path>,
+) -> Result<(FinalResponse, Option<String>), String> {
     let ext = path
         .extension()
         .and_then(|e| e.to_str())
@@ -513,10 +555,24 @@ pub fn run_script_path_sandboxed(
         .to_ascii_lowercase();
     if ext == "elac" {
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        run_bytecode_sandboxed(request, &bytes, limits, session_cfg, sandbox)
+        run_bytecode_sandboxed_with_templates(
+            request,
+            &bytes,
+            limits,
+            session_cfg,
+            sandbox,
+            template_dir,
+        )
     } else {
         let source = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        run_script_sandboxed(request, &source, limits, session_cfg, sandbox)
+        run_script_sandboxed_with_templates(
+            request,
+            &source,
+            limits,
+            session_cfg,
+            sandbox,
+            template_dir,
+        )
     }
 }
 
@@ -528,6 +584,21 @@ pub fn run_bytecode_sandboxed(
     session_cfg: Option<&SessionConfig>,
     sandbox: &SandboxConfig,
 ) -> Result<(FinalResponse, Option<String>), String> {
+    run_bytecode_sandboxed_with_templates(request, bytes, limits, session_cfg, sandbox, None)
+}
+
+/// Like [`run_bytecode_sandboxed`] with an explicit template directory.
+pub fn run_bytecode_sandboxed_with_templates(
+    request: &RequestData,
+    bytes: &[u8],
+    limits: &BodyLimits,
+    session_cfg: Option<&SessionConfig>,
+    sandbox: &SandboxConfig,
+    template_dir: Option<&std::path::Path>,
+) -> Result<(FinalResponse, Option<String>), String> {
+    if let Some(dir) = template_dir {
+        crate::template::set_template_dir(dir.to_path_buf());
+    }
     let mut prepared = request.clone();
     prepared.args = crate::body::parse_urlencoded(&prepared.query);
     if prepared.cookies.is_empty()

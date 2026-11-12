@@ -11,7 +11,8 @@ use crate::process::ProcessConfig;
 use crate::response::FinalResponse;
 use crate::routing::{Route, resolve_route, serve_static};
 use crate::sandbox::ELARA_CAP_SYS_ENV;
-use crate::script_api::{RequestData, run_script_path_sandboxed};
+use crate::script_api::{RequestData, run_script_path_sandboxed_with_templates};
+use crate::template::default_template_dir;
 
 /// Configuration for the built-in development server.
 #[derive(Debug, Clone)]
@@ -291,12 +292,17 @@ pub fn dispatch_request_with(
         Route::Error(e) => e,
         Route::Static { path, content_type } => serve_static(&path, &content_type),
         Route::Script(path) => {
-            match run_script_path_sandboxed(
+            let tmpl = process
+                .template_dir
+                .clone()
+                .unwrap_or_else(|| default_template_dir(docroot));
+            match run_script_path_sandboxed_with_templates(
                 &path,
                 req,
                 &process.body_limits,
                 Some(&process.session),
                 &process.sandbox,
+                Some(tmpl.as_path()),
             ) {
                 Ok((resp, err)) => {
                     if err.is_some() {
@@ -456,6 +462,11 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
                         ));
                     }
                 }
+            }
+            "--template-dir" => {
+                i += 1;
+                let dir = args.get(i).ok_or("--template-dir requires a path")?;
+                process.template_dir = Some(PathBuf::from(dir));
             }
             other => return Err(format!("unknown argument: {other}")),
         }

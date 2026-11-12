@@ -15,6 +15,7 @@ pub mod sandbox;
 pub mod script_api;
 pub mod server;
 pub mod session;
+pub mod template;
 
 use crate::ffi::{elara_Status, elara_close, elara_eval, elara_is_int, elara_open, elara_to_int};
 
@@ -53,6 +54,7 @@ pub use server::{
     serve_dev_connection_with,
 };
 pub use session::{FileSessionStore, Session, SessionConfig, default_session_store_dir};
+pub use template::{clear_template_cache, default_template_dir, render_file, set_template_dir};
 
 /// Open a state, evaluate `return 1+1`, assert the integer result is 2, then close.
 pub fn smoke_eval_one_plus_one() -> Result<(), String> {
