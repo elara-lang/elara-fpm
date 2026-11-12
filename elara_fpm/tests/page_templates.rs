@@ -78,3 +78,81 @@ fn missing_key_inserts_empty_string() {
     assert_eq!(String::from_utf8_lossy(&resp.body), "xy");
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn if_for_comment_and_include_with_depth_cap() {
+    let dir = setup("ctrl");
+    fs::write(dir.join("templates/part.htm"), "P{{ name }}").unwrap();
+    fs::write(
+        dir.join("templates/ctrl.htm"),
+        concat!(
+            "{# skip #}",
+            "{% if show %}Y{% else %}N{% endif %}",
+            "{% for item in items %}[{{ item }}]{% endfor %}",
+            "{% include \"part.htm\" %}",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        dir.join("ctrl.ela"),
+        "let items = {\"a\", \"b\"}\nres.render(\"ctrl.htm\", { show: true, items: items, name: \"Z\" })\n",
+    )
+    .unwrap();
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/ctrl.ela".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(
+        resp.status,
+        200,
+        "body={}",
+        String::from_utf8_lossy(&resp.body)
+    );
+    assert_eq!(String::from_utf8_lossy(&resp.body), "Y[a][b]PZ");
+
+    // Nested includes: eight levels ok; a ninth nested include is 500.
+    for i in 1..=10 {
+        let name = format!("d{i}.htm");
+        let body = if i == 10 {
+            "LEAF".into()
+        } else {
+            format!("{{% include \"d{}.htm\" %}}", i + 1)
+        };
+        fs::write(dir.join("templates").join(name), body).unwrap();
+    }
+    fs::write(dir.join("templates/d9.htm"), "OK8").unwrap();
+    clear_template_cache();
+    fs::write(dir.join("deep8.ela"), r#"res.render("d1.htm", {})"#).unwrap();
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/deep8.ela".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(
+        resp.status,
+        200,
+        "eight nested includes ok; body={}",
+        String::from_utf8_lossy(&resp.body)
+    );
+    assert_eq!(String::from_utf8_lossy(&resp.body), "OK8");
+
+    fs::write(dir.join("templates/d9.htm"), "{% include \"d10.htm\" %}").unwrap();
+    clear_template_cache();
+    fs::write(dir.join("deep9.ela"), r#"res.render("d1.htm", {})"#).unwrap();
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/deep9.ela".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(resp.status, 500, "ninth nested include must be 500");
+    assert!(
+        !String::from_utf8_lossy(&resp.body).contains(dir.to_string_lossy().as_ref()),
+        "must not leak absolute path"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
