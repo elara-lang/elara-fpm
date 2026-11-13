@@ -128,6 +128,10 @@ pub fn handle_cgi_request_with(
 ) -> FinalResponse {
     let req = request_from_cgi_env(env, stdin_body);
     // Prefer SCRIPT_FILENAME when present and under docroot.
+    let tmpl = process
+        .template_dir
+        .clone()
+        .unwrap_or_else(|| default_template_dir(docroot));
     let resp = if let Some(sf) = env.get("SCRIPT_FILENAME") {
         let sf_path = std::path::Path::new(sf);
         if let (Ok(root), Ok(canon)) = (
@@ -136,22 +140,43 @@ pub fn handle_cgi_request_with(
         ) && canon.starts_with(&root)
             && canon.is_file()
         {
-            run_script_file(&canon, &req, process, docroot)
-        } else {
-            match resolve_route(docroot, &req.path) {
-                Route::Error(e) => e,
-                Route::Static { path, content_type } => serve_static(&path, &content_type),
-                Route::Script(path) => run_script_file(&path, &req, process, docroot),
+            if crate::template::path_is_under_template_dir(&canon, &tmpl) {
+                host_error_page(404, "Not Found")
+            } else {
+                run_script_file(&canon, &req, process, docroot)
             }
+        } else {
+            route_cgi(docroot, &req, process, &tmpl)
         }
     } else {
-        match resolve_route(docroot, &req.path) {
-            Route::Error(e) => e,
-            Route::Static { path, content_type } => serve_static(&path, &content_type),
-            Route::Script(path) => run_script_file(&path, &req, process, docroot),
-        }
+        route_cgi(docroot, &req, process, &tmpl)
     };
     apply_head_method(&req.method, resp)
+}
+
+fn route_cgi(
+    docroot: &Path,
+    req: &RequestData,
+    process: &ProcessConfig,
+    tmpl: &Path,
+) -> FinalResponse {
+    match resolve_route(docroot, &req.path) {
+        Route::Error(e) => e,
+        Route::Static { path, content_type } => {
+            if crate::template::path_is_under_template_dir(&path, tmpl) {
+                host_error_page(404, "Not Found")
+            } else {
+                serve_static(&path, &content_type)
+            }
+        }
+        Route::Script(path) => {
+            if crate::template::path_is_under_template_dir(&path, tmpl) {
+                host_error_page(404, "Not Found")
+            } else {
+                run_script_file(&path, req, process, docroot)
+            }
+        }
+    }
 }
 
 fn run_script_file(

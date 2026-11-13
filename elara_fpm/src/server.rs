@@ -288,34 +288,44 @@ pub fn dispatch_request_with(
     req: &RequestData,
     process: &ProcessConfig,
 ) -> FinalResponse {
+    let tmpl = process
+        .template_dir
+        .clone()
+        .unwrap_or_else(|| default_template_dir(docroot));
     let resp = match resolve_route(docroot, &req.path) {
         Route::Error(e) => e,
-        Route::Static { path, content_type } => serve_static(&path, &content_type),
+        Route::Static { path, content_type } => {
+            if crate::template::path_is_under_template_dir(&path, &tmpl) {
+                host_error_page(404, "Not Found")
+            } else {
+                serve_static(&path, &content_type)
+            }
+        }
         Route::Script(path) => {
-            let tmpl = process
-                .template_dir
-                .clone()
-                .unwrap_or_else(|| default_template_dir(docroot));
-            match run_script_path_sandboxed_with_templates(
-                &path,
-                req,
-                &process.body_limits,
-                Some(&process.session),
-                &process.sandbox,
-                Some(tmpl.as_path()),
-            ) {
-                Ok((resp, err)) => {
-                    if err.is_some() {
-                        if resp.status == 500 {
-                            resp
+            if crate::template::path_is_under_template_dir(&path, &tmpl) {
+                host_error_page(404, "Not Found")
+            } else {
+                match run_script_path_sandboxed_with_templates(
+                    &path,
+                    req,
+                    &process.body_limits,
+                    Some(&process.session),
+                    &process.sandbox,
+                    Some(tmpl.as_path()),
+                ) {
+                    Ok((resp, err)) => {
+                        if err.is_some() {
+                            if resp.status == 500 {
+                                resp
+                            } else {
+                                host_error_page(500, "Internal Server Error")
+                            }
                         } else {
-                            host_error_page(500, "Internal Server Error")
+                            resp
                         }
-                    } else {
-                        resp
                     }
+                    Err(_) => host_error_page(500, "Internal Server Error"),
                 }
-                Err(_) => host_error_page(500, "Internal Server Error"),
             }
         }
     };

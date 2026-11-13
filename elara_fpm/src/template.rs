@@ -147,6 +147,17 @@ pub fn default_template_dir(docroot: &Path) -> PathBuf {
     docroot.join("templates")
 }
 
+/// True when `path` resolves inside the template directory.
+pub fn path_is_under_template_dir(path: &Path, template_dir: &Path) -> bool {
+    let Ok(root) = fs::canonicalize(template_dir) else {
+        return false;
+    };
+    let Ok(canon) = fs::canonicalize(path) else {
+        return false;
+    };
+    canon.starts_with(&root)
+}
+
 /// Resolve a relative template path under `root` (no `..`, no absolute).
 pub fn resolve_template_path(root: &Path, rel: &str) -> Result<PathBuf, String> {
     if rel.is_empty() || Path::new(rel).is_absolute() {

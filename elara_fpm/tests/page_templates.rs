@@ -156,3 +156,62 @@ fn if_for_comment_and_include_with_depth_cap() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn confinement_rejects_escape_and_template_urls_are_404() {
+    let dir = setup("conf");
+    fs::write(dir.join("secret.htm"), "SECRET").unwrap();
+    fs::write(dir.join("templates/ok.htm"), "ok").unwrap();
+    fs::write(dir.join("escape.ela"), r#"res.render("../secret.htm", {})"#).unwrap();
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/escape.ela".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(resp.status, 500);
+    assert!(
+        !String::from_utf8_lossy(&resp.body).contains("SECRET"),
+        "escaped template must not render"
+    );
+    assert!(
+        !String::from_utf8_lossy(&resp.body).contains(dir.to_string_lossy().as_ref()),
+        "must not leak absolute path"
+    );
+
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/templates/ok.htm".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(resp.status, 404);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn template_file_change_is_picked_up_without_restart() {
+    let dir = setup("cache");
+    let tmpl = dir.join("templates/v.htm");
+    fs::write(&tmpl, "v1").unwrap();
+    fs::write(dir.join("v.ela"), r#"res.render("v.htm", {})"#).unwrap();
+    let req = RequestData {
+        method: "GET".into(),
+        path: "/v.ela".into(),
+        ..RequestData::default()
+    };
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(String::from_utf8_lossy(&resp.body), "v1");
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(&tmpl, "v2").unwrap();
+    let resp = dispatch_request_with(&dir, &req, &ProcessConfig::default());
+    assert_eq!(
+        String::from_utf8_lossy(&resp.body),
+        "v2",
+        "edited template must apply on the next request"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
