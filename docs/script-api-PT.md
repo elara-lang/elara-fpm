@@ -32,8 +32,31 @@ O host **não** confia em `X-Forwarded-Proto` nem `X-Forwarded-For` para `scheme
 | `res.cookie(name, value)` | `Set-Cookie` com padrões |
 | `res.cookie_ex(...)` | Cookie com path / flags / max-age |
 | `res.redirect(url)` | 302 + `Location` (status opcional 301/303/307/308) |
+| `res.render(path, ctx)` | Acrescenta um template HTML renderizado (veja abaixo) |
 
-Escritas após `redirect` são ignoradas.
+Escritas após `redirect` são ignoradas. `res.write` permanece bruto; só a interpolação de template escapa automaticamente.
+
+## Templates (`res.render`)
+
+```ela
+res.render("hello.htm", { name: "ada" })
+```
+
+- `path` é relativo ao diretório de templates (padrão `<docroot>/templates`). Override com `--template-dir`. Scripts não escolhem o diretório.
+- `ctx` é uma table (omitido/`nil` significa `{}`). O render acrescenta ao body; não define status nem `Content-Type`.
+- Arquivos sob o diretório de templates não são servidos como URLs (`404`).
+
+| Forma | Efeito |
+| --- | --- |
+| `{{ name }}` | Insere o valor, escapado para HTML (`& < > " '`) |
+| `{{ name \| safe }}` | Insere o valor sem escape |
+| `{{ a.b }}` | Lookup aninhado; chave ausente insere string vazia |
+| `{% if cond %} … {% else %} … {% endif %}` | `else` opcional; falso: `nil`, `false`, `""`, table vazia |
+| `{% for item in items %} … {% endfor %}` | Percorre chaves inteiras em ordem crescente |
+| `{% include "part.htm" %}` | Render aninhado (mesma table); profundidade máxima 8 |
+| `{# … #}` | Comentário (omitido da saída) |
+
+Valores inseríveis: string, int, bool, nil. Inserir uma table é `500` do host. Escape de path ou arquivo ausente também é `500` (sem path absoluto no body).
 
 ## Helpers
 

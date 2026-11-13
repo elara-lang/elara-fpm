@@ -50,6 +50,7 @@ Aplicam-se a `-S`, CGI e `-F` no processo inteiro. Scripts não as alteram.
 | `--session-secure` | off | Define `Secure` no cookie de sessão |
 | `--session-samesite <Lax\|Strict\|None>` | `Lax` | `SameSite` do cookie de sessão |
 | `--allow-sys-env` | off | Concede `ELARA_CAP_SYS_ENV` |
+| `--template-dir <path>` | `<docroot>/templates` | Diretório dos templates de `res.render` |
 
 ## Padrões de sandbox
 

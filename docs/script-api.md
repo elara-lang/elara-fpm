@@ -32,8 +32,31 @@ The host does **not** trust `X-Forwarded-Proto` or `X-Forwarded-For` for `scheme
 | `res.cookie(name, value)` | `Set-Cookie` with defaults |
 | `res.cookie_ex(...)` | Cookie with path / flags / max-age |
 | `res.redirect(url)` | 302 + `Location` (optional status 301/303/307/308) |
+| `res.render(path, ctx)` | Append a rendered HTML template (see below) |
 
-Writes after `redirect` are ignored.
+Writes after `redirect` are ignored. `res.write` stays raw; only template interpolation auto-escapes.
+
+## Templates (`res.render`)
+
+```ela
+res.render("hello.htm", { name: "ada" })
+```
+
+- `path` is relative to the template directory (default `<docroot>/templates`). Override with `--template-dir`. Scripts cannot choose the directory.
+- `ctx` is a table (omitted/`nil` means `{}`). Render appends to the body; it does not set status or `Content-Type`.
+- Files under the template directory are not served as URLs (`404`).
+
+| Form | Effect |
+| --- | --- |
+| `{{ name }}` | Insert value, HTML-escaped (`& < > " '`) |
+| `{{ name \| safe }}` | Insert value with no escape |
+| `{{ a.b }}` | Nested table lookup; missing keys insert empty string |
+| `{% if cond %} … {% else %} … {% endif %}` | `else` optional; falsey: `nil`, `false`, `""`, empty table |
+| `{% for item in items %} … {% endfor %}` | Walk integer keys in ascending order |
+| `{% include "part.htm" %}` | Nested render (same table); depth capped at 8 |
+| `{# … #}` | Comment (omitted from output) |
+
+Insertable values: string, int, bool, nil. Inserting a table is a host `500`. Path escape or missing file is also `500` (no absolute path in the body).
 
 ## Helpers
 
