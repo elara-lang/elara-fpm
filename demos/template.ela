@@ -1,0 +1,8 @@
+res.header("Content-Type", "text/html; charset=utf-8")
+let items = {"alpha", "beta"}
+res.render("hello.htm", {
+  name: "<world>",
+  who: "demo",
+  show_list: true,
+  items: items,
+})
