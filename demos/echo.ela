@@ -5,6 +5,25 @@ res.write("\npath=")
 res.write(req.path)
 res.write("\nquery=")
 res.write(req.query)
-res.write("\nbody=")
+res.write("\nhost=")
+res.write(req.host)
+res.write("\nscheme=")
+res.write(req.scheme)
+res.write("\nremote=")
+res.write(req.remote)
+res.write("\nargs:\n")
+let ks = table.keys(req.args)
+let i = 0
+let n = #ks
+while i < n {
+  let k = ks[i]
+  res.write("  ")
+  res.write(k)
+  res.write("=")
+  res.write(req.args[k])
+  res.write("\n")
+  i += 1
+}
+res.write("body=")
 res.write(req.body)
 res.write("\n")
