@@ -8,7 +8,11 @@ Host SAPI HTTP que embute a VM Elara via `elara.h` / `libelara`, rodando scripts
 - Descobrir a Elara em `/usr/local`, noutro prefixo (`ELARA_PREFIX`) ou num checkout irmão (`ELARA_ROOT`)
 - Servidor embutido `-S` / `-t` para HTTP local em texto claro
 - Modo CGI (sem `-S`) e worker FastCGI para deploy atrás de um front-end
-- API de script: `req` / `res`, forms, cookies, sessions, redirects, escape HTML
+- API de script: `req` / `res` (method, path, query, args, host/scheme/remote, body), forms, cookies, sessions, redirects, escape HTML
+- Templates via `res.render` (escape, `if` / `for`, includes; `--template-dir`)
+- Serve `.ela` / `.elac`, `index.ela` / `index.elac` / `index.html` em diretórios, e arquivos estáticos; `HEAD` bate com `GET` com body vazio
+- Access log em stderr (`method path status elapsed_ms`) para `-S`, CGI e FastCGI
+- Flags de operador: `--gas`, `--mem`, `--max-body`, `--session-dir`, `--session-secure`, `--session-samesite`, `--allow-sys-env`
 - Sessões em arquivo sob `$TMPDIR/elara/.sessions` (tipicamente `/tmp/elara/.sessions`)
 
 ## Pré-requisitos
@@ -73,7 +77,7 @@ make build
 make run
 ```
 
-Abra [http://127.0.0.1:8080/hello.ela](http://127.0.0.1:8080/hello.ela). Mais demos: [`demos/README.md`](demos/README.md). Guias: [`docs/`](docs/). Inglês: [`README.md`](README.md).
+Abra [http://127.0.0.1:8080/](http://127.0.0.1:8080/) para o hub de demos (ou `/hello.ela`). Mais demos: [`demos/README.md`](demos/README.md). Guias: [`docs/`](docs/). Inglês: [`README.md`](README.md).
 
 ## Uso
 
