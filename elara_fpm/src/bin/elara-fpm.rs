@@ -1,6 +1,6 @@
 use elara_fpm::{
     DevServerConfig, FastCgiConfig, parse_cli, run_cgi_once_with, run_dev_server,
-    run_fastcgi_worker,
+    run_fastcgi_worker, usage_text,
 };
 use std::process::ExitCode;
 
@@ -10,12 +10,14 @@ fn main() -> ExitCode {
         Ok(c) => c,
         Err(e) => {
             eprintln!("elara-fpm: {e}");
-            eprintln!(
-                "usage: elara-fpm [-S <addr>:<port> | -F <listen>] [-t <docroot>] [--gas N] [--mem N] [--allow-sys-env]"
-            );
+            eprint!("{}", usage_text());
             return ExitCode::from(2);
         }
     };
+    if cli.help {
+        print!("{}", usage_text());
+        return ExitCode::SUCCESS;
+    }
     if !cli.docroot.is_dir() {
         eprintln!(
             "elara-fpm: document root is not a directory: {}",

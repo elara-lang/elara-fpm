@@ -2,6 +2,26 @@ use elara_fpm::parse_cli;
 use std::process::Command;
 
 #[test]
+fn binary_h_prints_help_and_exits_0() {
+    let bin = env!("CARGO_BIN_EXE_elara-fpm");
+    let output = Command::new(bin)
+        .arg("-h")
+        .output()
+        .expect("run elara-fpm -h");
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("-S"), "{stdout}");
+    assert!(stdout.contains("-F"), "{stdout}");
+    assert!(stdout.contains("-t"), "{stdout}");
+    assert!(stdout.contains("-h"), "{stdout}");
+    assert!(stdout.contains("--template-dir"), "{stdout}");
+}
+
+#[test]
 fn parse_rejects_s_with_f() {
     let args = vec![
         "elara-fpm".into(),

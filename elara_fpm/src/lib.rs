@@ -51,7 +51,7 @@ pub use script_api::{
 pub use server::{
     CliArgs, DevServerConfig, bind_listener, dispatch_request, dispatch_request_with, parse_cli,
     parse_listen_addr, print_listen_banner, run_dev_server, serve_dev_connection,
-    serve_dev_connection_with,
+    serve_dev_connection_with, usage_text,
 };
 pub use session::{FileSessionStore, Session, SessionConfig, default_session_store_dir};
 pub use template::{clear_template_cache, default_template_dir, render_file, set_template_dir};

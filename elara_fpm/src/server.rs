@@ -385,13 +385,44 @@ fn write_http_response(
 /// CLI argument parse result for the host binary.
 #[derive(Debug, Clone)]
 pub struct CliArgs {
+    pub help: bool,
     pub listen: Option<SocketAddr>,
     pub fastcgi: Option<String>,
     pub docroot: PathBuf,
     pub process: ProcessConfig,
 }
 
+/// Usage text for `-h` / `--help` and parse errors.
+pub fn usage_text() -> &'static str {
+    "\
+Usage: elara-fpm [options]
+
+Options:
+  -h, --help                 Show this help and exit
+  -S <addr>:<port>           Cleartext HTTP development server
+  -F <addr>:<port>           FastCGI worker on TCP
+  -F <absolute-path>         FastCGI worker on a Unix socket
+  -t <docroot>               Document root (default: current directory)
+  --gas <n>                  Per-request gas limit
+  --mem <bytes>              Per-request memory limit
+  --max-body <bytes>         Maximum request body size
+  --session-dir <path>       Session file-store directory
+  --session-secure           Set Secure on the session cookie
+  --session-samesite <mode>  Session cookie SameSite (Lax|Strict|None)
+  --template-dir <path>      Template root (default: <docroot>/templates)
+  --allow-sys-env            Grant ELARA_CAP_SYS_ENV
+
+Modes:
+  -S ...                     Development server (cleartext HTTP)
+  -F ...                     FastCGI behind a front-end
+  (neither -S nor -F)        CGI once (env + stdin → stdout)
+
+-S and -F cannot be used together.
+"
+}
+
 pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
+    let mut help = false;
     let mut listen = None;
     let mut fastcgi = None;
     let mut docroot = std::env::current_dir().map_err(|e| e.to_string())?;
@@ -399,6 +430,9 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
     let mut i = 1usize; // skip argv[0]
     while i < args.len() {
         match args[i].as_str() {
+            "-h" | "--help" => {
+                help = true;
+            }
             "-S" => {
                 i += 1;
                 let addr = args.get(i).ok_or("-S requires addr:port")?;
@@ -482,10 +516,20 @@ pub fn parse_cli(args: &[String]) -> Result<CliArgs, String> {
         }
         i += 1;
     }
+    if help {
+        return Ok(CliArgs {
+            help: true,
+            listen: None,
+            fastcgi: None,
+            docroot,
+            process: ProcessConfig::default(),
+        });
+    }
     if listen.is_some() && fastcgi.is_some() {
         return Err("-S and -F cannot be used together".into());
     }
     Ok(CliArgs {
+        help: false,
         listen,
         fastcgi,
         docroot,
